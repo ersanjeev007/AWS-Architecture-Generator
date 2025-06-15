@@ -9,7 +9,7 @@
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities to [security@your-domain.com]
+Please report security vulnerabilities in GitHub issues.
 
 Do not report security vulnerabilities through public GitHub issues.
 
