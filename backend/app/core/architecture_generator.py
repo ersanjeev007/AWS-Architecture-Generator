@@ -16,8 +16,8 @@ class ArchitectureGenerator:
         self.diagram_generator = DiagramGenerator()
         self.template_generator = TemplateGenerator()
     
-    def generate(self, questionnaire: QuestionnaireRequest) -> ArchitectureResponse:
-        """Generate complete AWS architecture from questionnaire"""
+    def generate(self, questionnaire: QuestionnaireRequest, user_preferences: Dict = None) -> ArchitectureResponse:
+        """Generate complete AWS architecture from questionnaire with user preferences"""
         
         architecture_id = str(uuid.uuid4())
         
@@ -52,6 +52,23 @@ class ArchitectureGenerator:
             cloudformation_template=cloudformation_template,
             recommendations=recommendations
         )
+    
+    def generate_architecture(self, questionnaire: QuestionnaireRequest, user_preferences: Dict = None) -> Dict:
+        """Generate architecture data as dictionary for storage"""
+        response = self.generate(questionnaire, user_preferences)
+        return {
+            "id": response.id,
+            "project_name": response.project_name,
+            "services": response.services,
+            "security_features": response.security_features,
+            "estimated_cost": response.estimated_cost,
+            "cost_breakdown": [item.model_dump() if hasattr(item, 'model_dump') else item for item in response.cost_breakdown],
+            "diagram_data": response.diagram_data.model_dump() if hasattr(response.diagram_data, 'model_dump') else response.diagram_data,
+            "terraform_template": response.terraform_template,
+            "cloudformation_template": response.cloudformation_template,
+            "recommendations": response.recommendations,
+            "user_preferences": user_preferences or {}
+        }
     
     def _select_services(self, questionnaire: QuestionnaireRequest) -> Dict[str, str]:
         """Select appropriate AWS services based on requirements"""

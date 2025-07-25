@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api.routes import architecture, health, projects  # Add projects import
+from app.api.routes import architecture, health, projects, aws_accounts, auth, architecture_modification
+from app.api.v1.endpoints import cost_analysis, security_recommendations
 from app.database import create_tables
 
 def create_application() -> FastAPI:
@@ -41,6 +42,31 @@ def create_application() -> FastAPI:
         health.router, 
         prefix=f"{settings.API_V1_STR}/health",
         tags=["health"]
+    )
+    application.include_router(
+        aws_accounts.router,
+        prefix=f"{settings.API_V1_STR}/aws-accounts",
+        tags=["aws-accounts"]
+    )
+    application.include_router(
+        cost_analysis.router,
+        prefix=f"{settings.API_V1_STR}/cost-analysis",
+        tags=["cost-analysis"]
+    )
+    application.include_router(
+        security_recommendations.router,
+        prefix=f"{settings.API_V1_STR}/security",
+        tags=["security-recommendations"]
+    )
+    application.include_router(
+        auth.router,
+        prefix=f"{settings.API_V1_STR}/auth",
+        tags=["authentication"]
+    )
+    application.include_router(
+        architecture_modification.router,
+        prefix=f"{settings.API_V1_STR}/architecture",
+        tags=["architecture-modification"]
     )
 
     return application

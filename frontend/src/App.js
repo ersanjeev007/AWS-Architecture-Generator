@@ -1,14 +1,40 @@
 import React from 'react';
 import { ChakraProvider, extendTheme } from '@chakra-ui/react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Layout from './components/layout/Layout';
+import MainLayout from './components/layout/MainLayout';
+import ProtectedRoute from './components/auth/ProtectedRoute';
+import LoginPage from './components/auth/LoginPage';
+import RegisterPage from './components/auth/RegisterPage';
 import ProjectsHomePage from './components/projects/ProjectsHomePage';
 import QuestionnaireForm from './components/questionnaire/QuestionnaireForm';
 import ArchitectureDashboard from './components/architecture/ArchitectureDashboard';
+import AWSAccountsPage from './components/aws/AWSAccountsPage';
+import CostAnalysisPage from './components/cost/CostAnalysisPage';
+import SecurityDashboard from './components/security/SecurityDashboard';
+import AnalyticsPage from './components/analytics/AnalyticsPage';
+import UserManagementPage from './components/admin/UserManagementPage';
+import SettingsPage from './components/settings/SettingsPage';
 import { ArchitectureProvider } from './hooks/useArchitecture';
+import { AuthProvider } from './hooks/useAuth';
 
 const theme = extendTheme({
+  config: {
+    initialColorMode: 'light',
+    useSystemColorMode: false,
+  },
   colors: {
+    brand: {
+      50: '#e3f2fd',
+      100: '#bbdefb',
+      200: '#90caf9',
+      300: '#64b5f6',
+      400: '#42a5f5',
+      500: '#2196f3',
+      600: '#1e88e5',
+      700: '#1976d2',
+      800: '#1565c0',
+      900: '#0d47a1',
+    },
     aws: {
       50: '#fff5e6',
       100: '#ffe0b3',
@@ -20,52 +46,160 @@ const theme = extendTheme({
       700: '#ef6c00',
       800: '#e65100',
       900: '#bf360c',
-    },
-    awsBlue: {
-      50: '#e3f2fd',
-      100: '#bbdefb',
-      200: '#90caf9',
-      300: '#64b5f6',
-      400: '#42a5f5',
-      500: '#2196f3',
-      600: '#1e88e5',
-      700: '#1976d2',
-      800: '#1565c0',
-      900: '#0d47a1',
     }
   },
   fonts: {
     heading: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
     body: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
   },
+  styles: {
+    global: {
+      body: {
+        bg: 'gray.50',
+      },
+    },
+  },
+  components: {
+    Button: {
+      defaultProps: {
+        colorScheme: 'blue',
+      },
+    },
+    Card: {
+      baseStyle: {
+        container: {
+          bg: 'white',
+          shadow: 'sm',
+          borderRadius: 'lg',
+          border: '1px',
+          borderColor: 'gray.100',
+        }
+      }
+    }
+  }
 });
 
 function App() {
   return (
     <ChakraProvider theme={theme}>
-      <ArchitectureProvider>
-        <Router>
-          <Layout>
+      <AuthProvider>
+        <ArchitectureProvider>
+          <Router>
             <Routes>
-              {/* Home page - shows saved projects */}
-              <Route path="/" element={<ProjectsHomePage />} />
+              {/* Public routes */}
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
               
-              {/* Create new architecture */}
-              <Route path="/create" element={<QuestionnaireForm />} />
+              {/* Protected routes */}
+              <Route path="/" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ProjectsHomePage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
               
-              {/* View project/architecture details */}
-              <Route path="/project/:id" element={<ArchitectureDashboard />} />
-              <Route path="/architecture/:id" element={<ArchitectureDashboard />} />
+              <Route path="/architectures" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ProjectsHomePage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
               
-              {/* Legacy routes - you can remove these if not needed */}
-              <Route path="/projects" element={<ProjectsHomePage />} />
+              <Route path="/create" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <QuestionnaireForm />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/project/:id" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ArchitectureDashboard />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/architecture/:id" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ArchitectureDashboard />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/aws-accounts" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <AWSAccountsPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/cost-analysis" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <CostAnalysisPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/security" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <SecurityDashboard />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/analytics" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <AnalyticsPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/users" element={
+                <ProtectedRoute requireAdmin={true}>
+                  <MainLayout>
+                    <UserManagementPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/settings" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <SettingsPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              {/* Legacy routes */}
+              <Route path="/projects" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ProjectsHomePage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
               
               {/* Fallback route */}
-              <Route path="*" element={<ProjectsHomePage />} />
+              <Route path="*" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ProjectsHomePage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
             </Routes>
-          </Layout>
-        </Router>
-      </ArchitectureProvider>
+          </Router>
+        </ArchitectureProvider>
+      </AuthProvider>
     </ChakraProvider>
   );
 }

@@ -23,6 +23,25 @@ class CostBreakdown(BaseModel):
     estimated_monthly_cost: str = Field(..., description="Estimated monthly cost")
     description: str = Field(..., description="Service description")
 
+class EnhancedCostResponse(BaseModel):
+    estimated_cost: str = Field(..., description="Total estimated cost range")
+    cost_breakdown: List[CostBreakdown] = Field(..., description="Detailed cost breakdown")
+    total_monthly_cost: float = Field(..., description="Total monthly cost in USD")
+    pricing_confidence: int = Field(..., description="Pricing confidence percentage (0-100)")
+    region: str = Field(..., description="AWS region for pricing")
+    optimizations: List[Dict[str, str]] = Field(default_factory=list, description="Cost optimization recommendations")
+    last_updated: str = Field(..., description="Last pricing update timestamp")
+    includes_free_tier: bool = Field(default=True, description="Whether estimate includes AWS Free Tier")
+    currency: str = Field(default="USD", description="Currency for cost estimates")
+
+class CostOptimizationResponse(BaseModel):
+    project_id: str = Field(..., description="Project identifier")
+    current_monthly_cost: float = Field(..., description="Current monthly cost")
+    optimization_recommendations: List[Dict[str, str]] = Field(..., description="Optimization recommendations")
+    total_potential_savings: float = Field(..., description="Total potential savings")
+    optimization_impact: str = Field(..., description="Optimization impact percentage")
+    implementation_priority: List[str] = Field(..., description="Prioritized implementation recommendations")
+
 class ArchitectureResponse(BaseModel):
     id: str = Field(..., description="Unique architecture identifier")
     project_name: str = Field(..., description="Project name")

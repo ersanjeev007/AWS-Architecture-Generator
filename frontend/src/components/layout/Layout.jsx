@@ -13,7 +13,7 @@ import {
   Spacer,
 } from '@chakra-ui/react';
 import { Link, useLocation } from 'react-router-dom';
-import { FaAws, FaHome } from 'react-icons/fa';
+import { FaAws, FaHome, FaCog } from 'react-icons/fa';
 
 const Layout = ({ children }) => {
   const location = useLocation();
@@ -40,18 +40,31 @@ const Layout = ({ children }) => {
             
             <Spacer />
             
-            {!isHomePage && (
+            <HStack spacing={3}>
               <Button
                 as={Link}
-                to="/"
+                to="/aws-accounts"
                 variant="outline"
                 colorScheme="whiteAlpha"
-                leftIcon={<FaHome />}
+                leftIcon={<FaCog />}
                 size="sm"
               >
-                New Project
+                AWS Accounts
               </Button>
-            )}
+              
+              {!isHomePage && (
+                <Button
+                  as={Link}
+                  to="/"
+                  variant="outline"
+                  colorScheme="whiteAlpha"
+                  leftIcon={<FaHome />}
+                  size="sm"
+                >
+                  New Project
+                </Button>
+              )}
+            </HStack>
           </Flex>
           
           {isHomePage && (
