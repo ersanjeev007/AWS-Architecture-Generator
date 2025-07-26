@@ -774,6 +774,548 @@ resource "aws_iam_role_policy" "monitoring" {{
 }}
 '''
     
+    def generate_enhanced_security_groups(self, project_name: str, services: Dict[str, str], security_level: str) -> str:
+        """Generate enhanced security groups with least privilege access"""
+        
+        # Determine which ports are needed based on services
+        ports_needed = []
+        if 'web_server' in services or 'load_balancer' in services:
+            ports_needed.extend([80, 443])
+        if 'database' in services:
+            ports_needed.extend([3306, 5432])  # MySQL, PostgreSQL
+        if 'redis' in services:
+            ports_needed.append(6379)
+        if 'ssh_access' in services:
+            ports_needed.append(22)
+        
+        terraform_sg = f'''
+# Enhanced Security Groups with Least Privilege Access
+# Generated for security level: {security_level}
+
+# Web tier security group
+resource "aws_security_group" "web_tier" {{
+  name_prefix = "{project_name}-web-"
+  description = "Security group for web tier with enhanced controls"
+  vpc_id      = aws_vpc.main.id
+
+  # HTTPS traffic
+  ingress {{
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }}
+
+  # HTTP traffic (redirect to HTTPS)
+  ingress {{
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }}
+
+  # Outbound traffic
+  egress {{
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }}
+
+  tags = {{
+    Name        = "{project_name}-web-sg"
+    Environment = var.environment
+    Tier        = "web"
+  }}
+}}
+
+# Application tier security group
+resource "aws_security_group" "app_tier" {{
+  name_prefix = "{project_name}-app-"
+  description = "Security group for application tier"
+  vpc_id      = aws_vpc.main.id
+
+  # Allow traffic from web tier
+  ingress {{
+    description     = "App traffic from web tier"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.web_tier.id]
+  }}
+
+  # Allow traffic from load balancer
+  ingress {{
+    description     = "App traffic from ALB"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }}
+
+  # Outbound traffic
+  egress {{
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }}
+
+  tags = {{
+    Name        = "{project_name}-app-sg"
+    Environment = var.environment
+    Tier        = "application"
+  }}
+}}
+
+# Database tier security group
+resource "aws_security_group" "db_tier" {{
+  name_prefix = "{project_name}-db-"
+  description = "Security group for database tier"
+  vpc_id      = aws_vpc.main.id
+
+  # MySQL/Aurora
+  ingress {{
+    description     = "MySQL/Aurora"
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_tier.id]
+  }}
+
+  # PostgreSQL
+  ingress {{
+    description     = "PostgreSQL"
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_tier.id]
+  }}
+
+  # Redis
+  ingress {{
+    description     = "Redis"
+    from_port       = 6379
+    to_port         = 6379
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_tier.id]
+  }}
+
+  # No outbound rules - databases shouldn't initiate connections
+  tags = {{
+    Name        = "{project_name}-db-sg"
+    Environment = var.environment
+    Tier        = "database"
+  }}
+}}
+
+# ALB security group
+resource "aws_security_group" "alb" {{
+  name_prefix = "{project_name}-alb-"
+  description = "Security group for Application Load Balancer"
+  vpc_id      = aws_vpc.main.id
+
+  # HTTPS traffic
+  ingress {{
+    description = "HTTPS"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }}
+
+  # HTTP traffic
+  ingress {{
+    description = "HTTP"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }}
+
+  # Outbound to application tier
+  egress {{
+    description     = "To application tier"
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.app_tier.id]
+  }}
+
+  tags = {{
+    Name        = "{project_name}-alb-sg"
+    Environment = var.environment
+    Type        = "load-balancer"
+  }}
+}}
+
+# Lambda security group (if using VPC Lambda)
+resource "aws_security_group" "lambda" {{
+  count       = contains(keys(var.services), "lambda") ? 1 : 0
+  name_prefix = "{project_name}-lambda-"
+  description = "Security group for Lambda functions"
+  vpc_id      = aws_vpc.main.id
+
+  # Outbound traffic for Lambda
+  egress {{
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "HTTPS outbound"
+  }}
+
+  egress {{
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.db_tier.id]
+    description     = "MySQL access"
+  }}
+
+  egress {{
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.db_tier.id]
+    description     = "PostgreSQL access"
+  }}
+
+  tags = {{
+    Name        = "{project_name}-lambda-sg"
+    Environment = var.environment
+    Type        = "lambda"
+  }}
+}}
+
+# Bastion host security group (for secure access)
+resource "aws_security_group" "bastion" {{
+  count       = var.enable_bastion ? 1 : 0
+  name_prefix = "{project_name}-bastion-"
+  description = "Security group for bastion host"
+  vpc_id      = aws_vpc.main.id
+
+  # SSH access from specific IP ranges
+  ingress {{
+    description = "SSH from office"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.allowed_ssh_cidrs
+  }}
+
+  # Outbound SSH to private subnets
+  egress {{
+    description = "SSH to private instances"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [aws_subnet.private[0].cidr_block, aws_subnet.private[1].cidr_block]
+  }}
+
+  tags = {{
+    Name        = "{project_name}-bastion-sg"
+    Environment = var.environment
+    Type        = "bastion"
+  }}
+}}
+'''
+        
+        return terraform_sg
+    
+    def generate_network_acls(self, project_name: str, security_level: str) -> str:
+        """Generate Network ACLs for additional layer of security"""
+        
+        terraform_nacls = f'''
+# Network ACLs for Additional Security Layer
+# Security Level: {security_level}
+
+# Public subnet NACL (for web tier)
+resource "aws_network_acl" "public" {{
+  vpc_id = aws_vpc.main.id
+  
+  # Allow HTTP inbound
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 80
+    to_port    = 80
+  }}
+  
+  # Allow HTTPS inbound
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 110
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 443
+    to_port    = 443
+  }}
+  
+  # Allow ephemeral ports inbound (for return traffic)
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 120
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 1024
+    to_port    = 65535
+  }}
+  
+  # Allow SSH from management network (if enabled)
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 130
+    action     = "allow"
+    cidr_block = "10.0.0.0/8"
+    from_port  = 22
+    to_port    = 22
+  }}
+  
+  # Allow all outbound traffic
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 80
+    to_port    = 80
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 110
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 443
+    to_port    = 443
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 120
+    action     = "allow"
+    cidr_block = "10.0.0.0/16"
+    from_port  = 8080
+    to_port    = 8080
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 130
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 1024
+    to_port    = 65535
+  }}
+  
+  tags = {{
+    Name        = "{project_name}-public-nacl"
+    Environment = var.environment
+    Tier        = "public"
+  }}
+}}
+
+# Private subnet NACL (for app tier)
+resource "aws_network_acl" "private" {{
+  vpc_id = aws_vpc.main.id
+  
+  # Allow traffic from public subnet
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = aws_subnet.public[0].cidr_block
+    from_port  = 8080
+    to_port    = 8080
+  }}
+  
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 110
+    action     = "allow"
+    cidr_block = aws_subnet.public[1].cidr_block
+    from_port  = 8080
+    to_port    = 8080
+  }}
+  
+  # Allow HTTPS outbound
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 443
+    to_port    = 443
+  }}
+  
+  # Allow database connections
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 110
+    action     = "allow"
+    cidr_block = aws_subnet.database[0].cidr_block
+    from_port  = 3306
+    to_port    = 3306
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 120
+    action     = "allow"
+    cidr_block = aws_subnet.database[1].cidr_block
+    from_port  = 3306
+    to_port    = 3306
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 130
+    action     = "allow"
+    cidr_block = aws_subnet.database[0].cidr_block
+    from_port  = 5432
+    to_port    = 5432
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 140
+    action     = "allow"
+    cidr_block = aws_subnet.database[1].cidr_block
+    from_port  = 5432
+    to_port    = 5432
+  }}
+  
+  # Allow ephemeral ports
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 150
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 1024
+    to_port    = 65535
+  }}
+  
+  tags = {{
+    Name        = "{project_name}-private-nacl"
+    Environment = var.environment
+    Tier        = "private"
+  }}
+}}
+
+# Database subnet NACL (most restrictive)
+resource "aws_network_acl" "database" {{
+  vpc_id = aws_vpc.main.id
+  
+  # Allow MySQL from private subnets
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = aws_subnet.private[0].cidr_block
+    from_port  = 3306
+    to_port    = 3306
+  }}
+  
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 110
+    action     = "allow"
+    cidr_block = aws_subnet.private[1].cidr_block
+    from_port  = 3306
+    to_port    = 3306
+  }}
+  
+  # Allow PostgreSQL from private subnets
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 120
+    action     = "allow"
+    cidr_block = aws_subnet.private[0].cidr_block
+    from_port  = 5432
+    to_port    = 5432
+  }}
+  
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 130
+    action     = "allow"
+    cidr_block = aws_subnet.private[1].cidr_block
+    from_port  = 5432
+    to_port    = 5432
+  }}
+  
+  # Allow Redis from private subnets
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 140
+    action     = "allow"
+    cidr_block = aws_subnet.private[0].cidr_block
+    from_port  = 6379
+    to_port    = 6379
+  }}
+  
+  ingress {{
+    protocol   = "tcp"
+    rule_no    = 150
+    action     = "allow"
+    cidr_block = aws_subnet.private[1].cidr_block
+    from_port  = 6379
+    to_port    = 6379
+  }}
+  
+  # Allow ephemeral ports for response traffic
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = aws_subnet.private[0].cidr_block
+    from_port  = 1024
+    to_port    = 65535
+  }}
+  
+  egress {{
+    protocol   = "tcp"
+    rule_no    = 110
+    action     = "allow"
+    cidr_block = aws_subnet.private[1].cidr_block
+    from_port  = 1024
+    to_port    = 65535
+  }}
+  
+  tags = {{
+    Name        = "{project_name}-database-nacl"
+    Environment = var.environment
+    Tier        = "database"
+  }}
+}}
+
+# Associate NACLs with subnets
+resource "aws_network_acl_association" "public" {{
+  count          = length(aws_subnet.public)
+  network_acl_id = aws_network_acl.public.id
+  subnet_id      = aws_subnet.public[count.index].id
+}}
+
+resource "aws_network_acl_association" "private" {{
+  count          = length(aws_subnet.private)
+  network_acl_id = aws_network_acl.private.id
+  subnet_id      = aws_subnet.private[count.index].id
+}}
+
+resource "aws_network_acl_association" "database" {{
+  count          = length(aws_subnet.database)
+  network_acl_id = aws_network_acl.database.id
+  subnet_id      = aws_subnet.database[count.index].id
+}}
+'''
+        
+        return terraform_nacls
+    
     def generate_enhanced_security_services(self, project_name: str, security_level: str) -> str:
         """Generate enhanced AWS security services configuration"""
         
