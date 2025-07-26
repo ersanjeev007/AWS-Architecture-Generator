@@ -83,14 +83,8 @@ const MainLayout = ({ children }) => {
     },
     {
       name: 'AWS Accounts',
-      path: '/aws-accounts',
-      icon: FaAws,
-      badge: null,
-    },
-    {
-      name: 'Manage AWS Accounts',
       path: '/manage-aws-accounts',
-      icon: FaCloud,
+      icon: FaAws,
       badge: null,
     },
     {

@@ -8,7 +8,6 @@ import RegisterPage from './components/auth/RegisterPage';
 import ProjectsHomePage from './components/projects/ProjectsHomePage';
 import QuestionnaireForm from './components/questionnaire/QuestionnaireForm';
 import ArchitectureDashboard from './components/architecture/ArchitectureDashboard';
-import AWSAccountsPage from './components/aws/AWSAccountsPage';
 import CostAnalysisPage from './components/cost/CostAnalysisPage';
 import SecurityDashboard from './components/security/SecurityDashboard';
 import AnalyticsPage from './components/analytics/AnalyticsPage';
@@ -134,13 +133,6 @@ function App() {
                 </ProtectedRoute>
               } />
               
-              <Route path="/aws-accounts" element={
-                <ProtectedRoute>
-                  <MainLayout>
-                    <AWSAccountsPage />
-                  </MainLayout>
-                </ProtectedRoute>
-              } />
               
               <Route path="/cost-analysis" element={
                 <ProtectedRoute>
