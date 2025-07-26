@@ -1,14 +1,16 @@
 from typing import Dict, List
 from app.schemas.questionnaire import QuestionnaireRequest
+from app.core.enhanced_security_templates import EnhancedSecurityTemplates
 
 class TemplateGenerator:
-    """Generate Infrastructure as Code templates with security hardening"""
+    """Generate Infrastructure as Code templates with enhanced security hardening"""
     
     def __init__(self):
+        self.enhanced_security = EnhancedSecurityTemplates()
         self.security_levels = {
-            "basic": ["encryption", "vpc"],
-            "medium": ["encryption", "vpc", "security_groups", "monitoring", "backup"],
-            "high": ["encryption", "vpc", "security_groups", "monitoring", "backup", "waf", "secrets", "multi_az", "logging"]
+            "basic": ["encryption", "vpc", "enhanced_security_groups", "enhanced_nacls"],
+            "medium": ["encryption", "vpc", "enhanced_security_groups", "enhanced_nacls", "monitoring", "backup", "guardduty", "cloudtrail"],
+            "high": ["encryption", "vpc", "enhanced_security_groups", "enhanced_nacls", "monitoring", "backup", "waf", "secrets", "multi_az", "logging", "guardduty", "security_hub", "config", "inspector", "macie", "cloudhsm", "compliance_controls"]
         }
     
     def _determine_security_level(self, questionnaire: QuestionnaireRequest) -> str:
@@ -16,9 +18,10 @@ class TemplateGenerator:
         compliance = getattr(questionnaire, 'compliance_requirements', [])
         data_sensitivity = getattr(questionnaire, 'data_sensitivity', '').lower()
         
-        if any(req in ['hipaa', 'pci-dss', 'sox'] for req in compliance) or 'high' in data_sensitivity:
+        # Enhanced security level determination
+        if any(req in ['hipaa', 'pci-dss', 'sox', 'fedramp'] for req in compliance) or 'high' in data_sensitivity:
             return "high"
-        elif 'medium' in data_sensitivity or len(compliance) > 0:
+        elif 'medium' in data_sensitivity or len(compliance) > 0 or any(req in ['gdpr'] for req in compliance):
             return "medium"
         else:
             return "basic"
@@ -67,13 +70,16 @@ class TemplateGenerator:
         # Networking
         template_sections.append(self._generate_terraform_vpc(project_name_clean, security_level))
         
-        # Security groups
-        if "security_groups" in security_features:
-            template_sections.append(self._generate_terraform_security_groups(project_name_clean, services))
+        # Enhanced security groups and NACLs  
+        if "enhanced_security_groups" in security_features:
+            template_sections.append(self._generate_enhanced_terraform_security_groups(project_name_clean, services, security_level))
         
-        # WAF (if high security)
+        if "enhanced_nacls" in security_features:
+            template_sections.append(self._generate_terraform_nacls(project_name_clean, security_level))
+        
+        # Enhanced WAF with advanced rules
         if "waf" in security_features:
-            template_sections.append(self._generate_terraform_waf(project_name_clean))
+            template_sections.append(self._generate_enhanced_terraform_waf(project_name_clean, security_level))
         
         # Load balancer
         if "load_balancer" in services:
@@ -94,12 +100,36 @@ class TemplateGenerator:
         # Storage
         template_sections.append(self._generate_terraform_s3(project_name_clean, security_level))
         
-        # Monitoring and logging
+        # Enhanced security services
+        if "guardduty" in security_features:
+            template_sections.append(self._generate_terraform_guardduty(project_name_clean))
+        
+        if "security_hub" in security_features:
+            template_sections.append(self._generate_terraform_security_hub(project_name_clean))
+        
+        if "config" in security_features:
+            template_sections.append(self._generate_terraform_config(project_name_clean))
+        
+        if "inspector" in security_features:
+            template_sections.append(self._generate_terraform_inspector(project_name_clean))
+        
+        if "macie" in security_features:
+            template_sections.append(self._generate_terraform_macie(project_name_clean))
+        
+        if "cloudhsm" in security_features:
+            template_sections.append(self._generate_terraform_cloudhsm(project_name_clean))
+        
+        # Enhanced monitoring and logging
         if "monitoring" in security_features:
-            template_sections.append(self._generate_terraform_monitoring(project_name_clean))
+            template_sections.append(self._generate_enhanced_terraform_monitoring(project_name_clean, security_level))
         
         if "logging" in security_features:
-            template_sections.append(self._generate_terraform_logging(project_name_clean))
+            template_sections.append(self._generate_enhanced_terraform_logging(project_name_clean, security_level))
+        
+        # Compliance controls
+        if "compliance_controls" in security_features:
+            compliance_frameworks = getattr(questionnaire, 'compliance_requirements', [])
+            template_sections.append(self._generate_terraform_compliance_controls(project_name_clean, compliance_frameworks))
         
         # Outputs
         template_sections.append(self._generate_terraform_outputs())
@@ -2654,3 +2684,51 @@ Conditions:
           Value: !Sub "${{ProjectName}}-lambda-sg"
         - Key: Environment
           Value: !Ref Environment'''
+    
+    def _generate_enhanced_terraform_security_groups(self, project_name: str, services: Dict[str, str], security_level: str) -> str:
+        """Generate enhanced security groups with comprehensive rules"""
+        return self.enhanced_security.generate_enhanced_security_groups(project_name, services, security_level)
+    
+    def _generate_terraform_nacls(self, project_name: str, security_level: str) -> str:
+        """Generate Network ACLs for additional layer of security"""
+        return self.enhanced_security.generate_network_acls(project_name, security_level)
+    
+    def _generate_enhanced_terraform_waf(self, project_name: str, security_level: str) -> str:
+        """Generate enhanced WAF with advanced rules and protections"""
+        return self.enhanced_security.generate_enhanced_waf_configuration(project_name, security_level)
+    
+    def _generate_enhanced_terraform_monitoring(self, project_name: str, security_level: str) -> str:
+        """Generate enhanced monitoring with comprehensive security metrics"""
+        return self.enhanced_security.generate_enhanced_monitoring_configuration(project_name, security_level)
+    
+    def _generate_enhanced_terraform_logging(self, project_name: str, security_level: str) -> str:
+        """Generate enhanced logging with comprehensive audit capabilities"""
+        return self.enhanced_security.generate_enhanced_logging_configuration(project_name, security_level)
+    
+    def _generate_terraform_guardduty(self, project_name: str) -> str:
+        """Generate GuardDuty threat detection"""
+        return self.enhanced_security.generate_guardduty_configuration(project_name)
+    
+    def _generate_terraform_security_hub(self, project_name: str) -> str:
+        """Generate Security Hub configuration"""
+        return self.enhanced_security.generate_security_hub_configuration(project_name)
+    
+    def _generate_terraform_config(self, project_name: str) -> str:
+        """Generate AWS Config for compliance monitoring"""
+        return self.enhanced_security.generate_config_configuration(project_name)
+    
+    def _generate_terraform_inspector(self, project_name: str) -> str:
+        """Generate Inspector for vulnerability assessments"""
+        return self.enhanced_security.generate_inspector_configuration(project_name)
+    
+    def _generate_terraform_macie(self, project_name: str) -> str:
+        """Generate Macie for data security"""
+        return self.enhanced_security.generate_macie_configuration(project_name)
+    
+    def _generate_terraform_cloudhsm(self, project_name: str) -> str:
+        """Generate CloudHSM for FIPS compliance"""
+        return self.enhanced_security.generate_cloudhsm_configuration(project_name)
+    
+    def _generate_terraform_compliance_controls(self, project_name: str, compliance_frameworks: List[str]) -> str:
+        """Generate compliance-specific controls"""
+        return self.enhanced_security.generate_compliance_controls(project_name, compliance_frameworks)

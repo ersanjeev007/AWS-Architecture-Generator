@@ -40,6 +40,8 @@ import {
   FaUser,
   FaBell,
   FaSearch,
+  FaRocket,
+  FaCloud,
 } from 'react-icons/fa';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -74,9 +76,21 @@ const MainLayout = ({ children }) => {
       badge: null,
     },
     {
+      name: 'Production Deploy',
+      path: '/production',
+      icon: FaRocket,
+      badge: 'Pro',
+    },
+    {
       name: 'AWS Accounts',
       path: '/aws-accounts',
       icon: FaAws,
+      badge: null,
+    },
+    {
+      name: 'Manage AWS Accounts',
+      path: '/manage-aws-accounts',
+      icon: FaCloud,
       badge: null,
     },
     {

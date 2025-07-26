@@ -14,6 +14,9 @@ import SecurityDashboard from './components/security/SecurityDashboard';
 import AnalyticsPage from './components/analytics/AnalyticsPage';
 import UserManagementPage from './components/admin/UserManagementPage';
 import SettingsPage from './components/settings/SettingsPage';
+import InfrastructureImportWizard from './components/import/InfrastructureImportWizard';
+import ProductionArchitectureWorkflow from './components/production/ProductionArchitectureWorkflow';
+import AWSAccountManager from './components/aws/AWSAccountManager';
 import { ArchitectureProvider } from './hooks/useArchitecture';
 import { AuthProvider } from './hooks/useAuth';
 
@@ -175,6 +178,30 @@ function App() {
                 <ProtectedRoute>
                   <MainLayout>
                     <SettingsPage />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/import" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <InfrastructureImportWizard />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/production" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <ProductionArchitectureWorkflow />
+                  </MainLayout>
+                </ProtectedRoute>
+              } />
+              
+              <Route path="/manage-aws-accounts" element={
+                <ProtectedRoute>
+                  <MainLayout>
+                    <AWSAccountManager />
                   </MainLayout>
                 </ProtectedRoute>
               } />

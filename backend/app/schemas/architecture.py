@@ -42,6 +42,14 @@ class CostOptimizationResponse(BaseModel):
     optimization_impact: str = Field(..., description="Optimization impact percentage")
     implementation_priority: List[str] = Field(..., description="Prioritized implementation recommendations")
 
+class ProjectResponse(BaseModel):
+    id: str = Field(..., description="Unique project identifier")
+    project_name: str = Field(..., description="Project name")
+    description: Optional[str] = Field(None, description="Project description")
+    services: Dict[str, str] = Field(..., description="Selected AWS services by category")
+    created_at: datetime = Field(..., description="Project creation timestamp")
+    updated_at: datetime = Field(..., description="Project last update timestamp")
+
 class ArchitectureResponse(BaseModel):
     id: str = Field(..., description="Unique architecture identifier")
     project_name: str = Field(..., description="Project name")

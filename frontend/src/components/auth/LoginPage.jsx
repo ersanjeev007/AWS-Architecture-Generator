@@ -191,24 +191,6 @@ const LoginPage = () => {
                 >
                   Sign In
                 </Button>
-
-                <Divider />
-
-                <Button
-                  variant="outline"
-                  colorScheme="gray"
-                  size="lg"
-                  w="full"
-                  onClick={handleDemoLogin}
-                  isLoading={loading}
-                  loadingText="Loading demo..."
-                >
-                  Try Demo Account
-                </Button>
-
-                <Text fontSize="sm" color="gray.600" textAlign="center">
-                  Demo credentials: username: <strong>demo</strong>, password: <strong>demo</strong>
-                </Text>
               </VStack>
             </form>
           </CardBody>

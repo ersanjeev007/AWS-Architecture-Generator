@@ -44,9 +44,12 @@ import {
   FaServer,
   FaDatabase,
   FaShieldAlt,
+  FaDownload,
+  FaChevronDown,
 } from 'react-icons/fa';
 import { SiAmazonaws } from 'react-icons/si';
 import { projectService } from '../../services/projectService';
+import InfrastructureImportWizard from '../import/InfrastructureImportWizard';
 
 const ProjectsHomePage = () => {
   const [projects, setProjects] = useState([]);
@@ -56,6 +59,7 @@ const ProjectsHomePage = () => {
   const toast = useToast();
   const navigate = useNavigate();
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const { isOpen: isImportOpen, onOpen: onImportOpen, onClose: onImportClose } = useDisclosure();
   const [projectToDelete, setProjectToDelete] = useState(null);
 
   useEffect(() => {
@@ -179,15 +183,31 @@ const ProjectsHomePage = () => {
               Manage and view your saved cloud architectures
             </Text>
           </VStack>
-          <Button
-            as={Link}
-            to="/create"
-            leftIcon={<FaPlus />}
-            colorScheme="awsBlue"
-            size="lg"
-          >
-            Create New Architecture
-          </Button>
+          <Menu>
+            <MenuButton
+              as={Button}
+              rightIcon={<FaChevronDown />}
+              colorScheme="awsBlue"
+              size="lg"
+            >
+              Create Architecture
+            </MenuButton>
+            <MenuList>
+              <MenuItem
+                icon={<FaPlus />}
+                as={Link}
+                to="/create"
+              >
+                Create New Architecture
+              </MenuItem>
+              <MenuItem
+                icon={<FaDownload />}
+                onClick={onImportOpen}
+              >
+                Import from AWS Account
+              </MenuItem>
+            </MenuList>
+          </Menu>
         </Flex>
 
         {/* Projects Grid */}
@@ -204,15 +224,26 @@ const ProjectsHomePage = () => {
                     Create your first AWS architecture to get started. Our intelligent generator will help you design the perfect cloud solution.
                   </Text>
                 </VStack>
-                <Button
-                  as={Link}
-                  to="/create"
-                  leftIcon={<FaPlus />}
-                  colorScheme="awsBlue"
-                  size="lg"
-                >
-                  Create Your First Architecture
-                </Button>
+                <HStack spacing={4}>
+                  <Button
+                    as={Link}
+                    to="/create"
+                    leftIcon={<FaPlus />}
+                    colorScheme="awsBlue"
+                    size="lg"
+                  >
+                    Create New Architecture
+                  </Button>
+                  <Button
+                    leftIcon={<FaDownload />}
+                    variant="outline"
+                    colorScheme="awsBlue"
+                    size="lg"
+                    onClick={onImportOpen}
+                  >
+                    Import from AWS
+                  </Button>
+                </HStack>
               </VStack>
             </CardBody>
           </Card>
@@ -361,6 +392,17 @@ const ProjectsHomePage = () => {
                 Delete
               </Button>
             </ModalFooter>
+          </ModalContent>
+        </Modal>
+
+        {/* Infrastructure Import Modal */}
+        <Modal isOpen={isImportOpen} onClose={onImportClose} size="full">
+          <ModalOverlay />
+          <ModalContent>
+            <ModalCloseButton />
+            <ModalBody p={0}>
+              <InfrastructureImportWizard onClose={onImportClose} />
+            </ModalBody>
           </ModalContent>
         </Modal>
       </VStack>

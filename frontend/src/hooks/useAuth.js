@@ -52,6 +52,8 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
+      console.log('Attempting login for:', username);
+      
       const response = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: {
@@ -60,18 +62,40 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ username, password }),
       });
 
+      console.log('Login response status:', response.status);
+      console.log('Login response headers:', response.headers);
+
+      const contentType = response.headers.get('content-type');
+      console.log('Content-Type:', contentType);
+
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Login failed');
+        if (contentType && contentType.includes('application/json')) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Login failed');
+        } else {
+          // If we get HTML instead of JSON, it's likely a server issue
+          const textResponse = await response.text();
+          console.error('Received non-JSON response:', textResponse.substring(0, 200));
+          throw new Error('Server connection error. Please make sure the backend server is running.');
+        }
+      }
+
+      if (!contentType || !contentType.includes('application/json')) {
+        const textResponse = await response.text();
+        console.error('Expected JSON but got:', contentType, textResponse.substring(0, 200));
+        throw new Error('Invalid response format from server');
       }
 
       const data = await response.json();
+      console.log('Login successful, received data:', data);
+      
       setToken(data.token);
       setUser(data.user);
       localStorage.setItem('token', data.token);
       
       return data;
     } catch (error) {
+      console.error('Login error:', error);
       throw error;
     }
   };

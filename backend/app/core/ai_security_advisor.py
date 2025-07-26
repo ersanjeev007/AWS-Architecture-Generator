@@ -8,6 +8,7 @@ from enum import Enum
 import openai
 import boto3
 from app.schemas.questionnaire import QuestionnaireRequest
+from app.core.enhanced_security_templates import EnhancedSecurityTemplates
 import aiohttp
 import hashlib
 
@@ -56,6 +57,9 @@ class AISecurityAdvisor:
         self.openai_api_key = openai_api_key
         if openai_api_key:
             openai.api_key = openai_api_key
+        
+        # Initialize enhanced security templates
+        self.enhanced_security = EnhancedSecurityTemplates()
         
         # AWS Security service announcements and features tracking
         self.aws_security_features_db = {
@@ -225,52 +229,54 @@ class AISecurityAdvisor:
         return sorted(unique_recommendations, key=lambda x: self._priority_score(x.priority), reverse=True)
     
     async def _analyze_security_gaps(self, project_analysis: ProjectAnalysis) -> List[SecurityRecommendation]:
-        """Analyze security gaps in the current architecture"""
+        """Analyze security gaps in the current architecture using enhanced security templates"""
         recommendations = []
         services_used = project_analysis.services_used
         security_level = project_analysis.security_level
+        compliance_requirements = project_analysis.compliance_requirements
         
-        # Check for missing encryption
+        # Enhanced encryption recommendations using enhanced security templates
         if any(service in ["S3", "RDS", "DynamoDB"] for service in services_used):
             if security_level in ["medium", "high"]:
+                enhanced_encryption = self.enhanced_security.generate_enhanced_encryption_configuration(
+                    "project", services_used, security_level, compliance_requirements
+                )
+                
                 recommendations.append(SecurityRecommendation(
-                    id="encrypt_at_rest",
-                    title="Enable Encryption at Rest",
-                    description="Encrypt sensitive data stored in databases and storage services",
+                    id="enhanced_encryption_at_rest",
+                    title="Enable Enhanced Encryption at Rest with Compliance Controls",
+                    description="Implement comprehensive encryption at rest with KMS, CloudHSM integration, and compliance-specific controls for data protection",
                     recommendation_type=SecurityRecommendationType.BEST_PRACTICE,
-                    affected_services=["S3", "RDS", "DynamoDB"],
-                    priority="high",
-                    implementation_effort="low",
+                    affected_services=["S3", "RDS", "DynamoDB", "EBS", "KMS"],
+                    priority="critical" if any(req in ["hipaa", "pci-dss", "fedramp"] for req in compliance_requirements) else "high",
+                    implementation_effort="medium",
                     cost_impact="low",
-                    compliance_frameworks=["HIPAA", "PCI-DSS", "SOX"],
+                    compliance_frameworks=compliance_requirements or ["HIPAA", "PCI-DSS", "SOX", "GDPR"],
                     aws_documentation_url="https://docs.aws.amazon.com/kms/latest/developerguide/",
                     implementation_steps=[
-                        "Create KMS key for encryption",
-                        "Enable encryption on storage services",
-                        "Configure automatic key rotation",
-                        "Update IAM policies for KMS access"
+                        "Create KMS keys with automatic rotation",
+                        "Configure CloudHSM for FIPS compliance (if required)",
+                        "Enable encryption on all storage services",
+                        "Implement envelope encryption for sensitive data",
+                        "Set up key usage monitoring and alerting",
+                        "Configure cross-region key replication",
+                        "Update IAM policies with least privilege access"
                     ],
-                    terraform_snippet='''
-resource "aws_kms_key" "main" {
-  description             = "KMS key for data encryption"
-  deletion_window_in_days = 7
-  enable_key_rotation     = true
-}''',
-                    cloudformation_snippet='''
-MainKMSKey:
-  Type: AWS::KMS::Key
-  Properties:
-    Description: KMS key for data encryption
-    EnableKeyRotation: true'''
+                    terraform_snippet=enhanced_encryption.get("terraform", ""),
+                    cloudformation_snippet=enhanced_encryption.get("cloudformation", "")
                 ))
         
-        # Check for missing WAF protection
+        # Enhanced WAF protection recommendations
         if any(service in ["ALB", "CloudFront", "API Gateway"] for service in services_used):
-            if security_level == "high":
+            if security_level in ["medium", "high"]:
+                enhanced_waf = self.enhanced_security.generate_enhanced_waf_configuration(
+                    "project", security_level
+                )
+                
                 recommendations.append(SecurityRecommendation(
-                    id="enable_waf",
-                    title="Enable AWS WAF Protection",
-                    description="Protect web applications from common attacks using AWS WAF",
+                    id="enhanced_waf_protection",
+                    title="Deploy Enhanced AWS WAF with Advanced Threat Protection",
+                    description="Implement comprehensive WAF protection with managed rule groups, rate limiting, geo-blocking, and advanced bot detection for maximum security",
                     recommendation_type=SecurityRecommendationType.BEST_PRACTICE,
                     affected_services=["ALB", "CloudFront", "API Gateway"],
                     priority="high",
@@ -304,8 +310,147 @@ MainKMSKey:
                     "Configure finding types",
                     "Set up SNS notifications",
                     "Integrate with Security Hub"
-                ]
+                ],
+                terraform_snippet=self.enhanced_security.generate_guardduty_configuration("project")
             ))
+        
+        # Enhanced Security Hub recommendations
+        if security_level in ["medium", "high"]:
+            recommendations.append(SecurityRecommendation(
+                id="enhanced_security_hub",
+                title="Deploy AWS Security Hub with Compliance Standards",
+                description="Centralize security findings and enable comprehensive compliance monitoring across AWS Foundational, CIS, and PCI DSS standards",
+                recommendation_type=SecurityRecommendationType.BEST_PRACTICE,
+                affected_services=["All Services"],
+                priority="high",
+                implementation_effort="low",
+                cost_impact="low",
+                compliance_frameworks=compliance_requirements or ["AWS Foundational", "CIS", "PCI-DSS"],
+                aws_documentation_url="https://docs.aws.amazon.com/securityhub/latest/userguide/",
+                implementation_steps=[
+                    "Enable Security Hub",
+                    "Subscribe to security standards",
+                    "Configure automated remediation",
+                    "Set up cross-account findings aggregation",
+                    "Create custom insights and dashboards"
+                ],
+                terraform_snippet=self.enhanced_security.generate_security_hub_configuration("project")
+            ))
+        
+        # AWS Config compliance monitoring
+        if compliance_requirements and security_level in ["medium", "high"]:
+            recommendations.append(SecurityRecommendation(
+                id="aws_config_compliance",
+                title="Enable AWS Config for Compliance Monitoring",
+                description="Deploy AWS Config to continuously monitor resource configurations and ensure compliance with organizational policies",
+                recommendation_type=SecurityRecommendationType.COMPLIANCE_UPDATE,
+                affected_services=["All Services"],
+                priority="high",
+                implementation_effort="medium",
+                cost_impact="medium",
+                compliance_frameworks=compliance_requirements,
+                aws_documentation_url="https://docs.aws.amazon.com/config/latest/developerguide/",
+                implementation_steps=[
+                    "Create S3 bucket for Config delivery",
+                    "Set up Config recorder and delivery channel",
+                    "Enable compliance-specific Config rules",
+                    "Configure automated remediation actions",
+                    "Set up compliance reporting"
+                ],
+                terraform_snippet=self.enhanced_security.generate_config_configuration("project")
+            ))
+        
+        # Macie for data protection
+        if any(service in ["S3"] for service in services_used) and security_level == "high":
+            recommendations.append(SecurityRecommendation(
+                id="amazon_macie_data_protection",
+                title="Deploy Amazon Macie for Data Discovery and Protection",
+                description="Use Macie to automatically discover, classify, and protect sensitive data in S3 buckets with machine learning-powered data security",
+                recommendation_type=SecurityRecommendationType.BEST_PRACTICE,
+                affected_services=["S3"],
+                priority="high",
+                implementation_effort="medium",
+                cost_impact="medium",
+                compliance_frameworks=["GDPR", "HIPAA", "PCI-DSS"],
+                aws_documentation_url="https://docs.aws.amazon.com/macie/latest/user/",
+                implementation_steps=[
+                    "Enable Macie service",
+                    "Configure S3 bucket scanning",
+                    "Set up sensitive data discovery jobs",
+                    "Configure finding notifications",
+                    "Create data classification policies"
+                ],
+                terraform_snippet=self.enhanced_security.generate_macie_configuration("project")
+            ))
+        
+        # Inspector for vulnerability assessments
+        if any(service in ["EC2", "ECS", "Lambda"] for service in services_used):
+            recommendations.append(SecurityRecommendation(
+                id="amazon_inspector_vulnerability_assessment",
+                title="Enable Amazon Inspector for Continuous Vulnerability Assessment",
+                description="Deploy Inspector to automatically assess EC2 instances and container images for vulnerabilities and security best practices",
+                recommendation_type=SecurityRecommendationType.BEST_PRACTICE,
+                affected_services=["EC2", "ECS", "ECR", "Lambda"],
+                priority="high",
+                implementation_effort="low",
+                cost_impact="low",
+                compliance_frameworks=["All"],
+                aws_documentation_url="https://docs.aws.amazon.com/inspector/latest/user/",
+                implementation_steps=[
+                    "Enable Inspector service",
+                    "Configure assessment targets",
+                    "Set up automated scanning schedules",
+                    "Configure finding notifications",
+                    "Integrate with CI/CD pipeline"
+                ],
+                terraform_snippet=self.enhanced_security.generate_inspector_configuration("project")
+            ))
+        
+        # CloudHSM for FIPS compliance
+        if any(req in ["fedramp", "fips"] for req in compliance_requirements) and security_level == "high":
+            recommendations.append(SecurityRecommendation(
+                id="cloudhsm_fips_compliance",
+                title="Deploy AWS CloudHSM for FIPS 140-2 Level 3 Compliance",
+                description="Implement CloudHSM to meet FIPS 140-2 Level 3 compliance requirements for cryptographic operations",
+                recommendation_type=SecurityRecommendationType.COMPLIANCE_UPDATE,
+                affected_services=["KMS", "CloudHSM"],
+                priority="critical",
+                implementation_effort="high",
+                cost_impact="high",
+                compliance_frameworks=["FedRAMP", "FIPS 140-2"],
+                aws_documentation_url="https://docs.aws.amazon.com/cloudhsm/latest/userguide/",
+                implementation_steps=[
+                    "Design CloudHSM cluster architecture",
+                    "Create CloudHSM cluster and HSMs",
+                    "Configure high availability setup",
+                    "Initialize and configure HSM users",
+                    "Integrate with applications and KMS",
+                    "Set up monitoring and backup procedures"
+                ],
+                terraform_snippet=self.enhanced_security.generate_cloudhsm_configuration("project")
+            ))
+        
+        # Enhanced Security Groups and NACLs
+        recommendations.append(SecurityRecommendation(
+            id="enhanced_network_security",
+            title="Implement Enhanced Security Groups and Network ACLs",
+            description="Deploy defense-in-depth network security with enhanced security groups using zero-trust principles and network ACLs for additional protection layers",
+            recommendation_type=SecurityRecommendationType.BEST_PRACTICE,
+            affected_services=["VPC", "EC2", "RDS", "ELB"],
+            priority="high",
+            implementation_effort="medium",
+            cost_impact="none",
+            compliance_frameworks=["All"],
+            aws_documentation_url="https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Security.html",
+            implementation_steps=[
+                "Review current security group rules",
+                "Implement least privilege access",
+                "Add network ACL layers",
+                "Configure logging and monitoring",
+                "Set up automated rule management"
+            ],
+            terraform_snippet=self.enhanced_security.generate_enhanced_security_groups("project", dict(services), security_level)
+        ))
         
         return recommendations
     

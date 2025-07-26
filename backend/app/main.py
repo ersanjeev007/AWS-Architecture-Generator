@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api.routes import architecture, health, projects, aws_accounts, auth, architecture_modification
+from app.api.routes import architecture, health, projects, aws_accounts, auth, architecture_modification, infrastructure_import, ai_ml_optimization, dynamic_security, dynamic_cost, production_infrastructure
 from app.api.v1.endpoints import cost_analysis, security_recommendations
 from app.database import create_tables
 
@@ -67,6 +67,31 @@ def create_application() -> FastAPI:
         architecture_modification.router,
         prefix=f"{settings.API_V1_STR}/architecture",
         tags=["architecture-modification"]
+    )
+    application.include_router(
+        infrastructure_import.router,
+        prefix=f"{settings.API_V1_STR}",
+        tags=["infrastructure-import"]
+    )
+    application.include_router(
+        ai_ml_optimization.router,
+        prefix=f"{settings.API_V1_STR}",
+        tags=["ai-ml-optimization"]
+    )
+    application.include_router(
+        dynamic_security.router,
+        prefix=f"{settings.API_V1_STR}/dynamic-security",
+        tags=["dynamic-security"]
+    )
+    application.include_router(
+        dynamic_cost.router,
+        prefix=f"{settings.API_V1_STR}/dynamic-cost",
+        tags=["dynamic-cost"]
+    )
+    application.include_router(
+        production_infrastructure.router,
+        prefix=f"{settings.API_V1_STR}/production-infrastructure",
+        tags=["production-infrastructure"]
     )
 
     return application
