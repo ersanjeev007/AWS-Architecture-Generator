@@ -12,6 +12,7 @@ import {
   Button,
   Alert,
   AlertIcon,
+  AlertDescription,
   Card,
   CardBody,
   CardHeader,
@@ -26,6 +27,7 @@ import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
 import { FaAws } from 'react-icons/fa';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { extractErrorMessage } from '../../utils/errorUtils';
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -68,7 +70,7 @@ const LoginPage = () => {
       });
       navigate(from, { replace: true });
     } catch (err) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      setError(extractErrorMessage(err, 'Login failed. Please check your credentials.'));
     } finally {
       setLoading(false);
     }
@@ -142,7 +144,7 @@ const LoginPage = () => {
                 {error && (
                   <Alert status="error" borderRadius="md">
                     <AlertIcon />
-                    {error}
+                    <AlertDescription>{typeof error === 'string' ? error : extractErrorMessage(error, 'Login failed')}</AlertDescription>
                   </Alert>
                 )}
 

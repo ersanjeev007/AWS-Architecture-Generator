@@ -12,6 +12,7 @@ import {
   Button,
   Alert,
   AlertIcon,
+  AlertDescription,
   Card,
   CardBody,
   CardHeader,
@@ -25,6 +26,7 @@ import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons';
 import { FaAws } from 'react-icons/fa';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { extractErrorMessage } from '../../utils/errorUtils';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
@@ -88,7 +90,7 @@ const RegisterPage = () => {
       
       navigate('/login');
     } catch (err) {
-      setError(err.message || 'Registration failed. Please try again.');
+      setError(extractErrorMessage(err, 'Registration failed. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -141,7 +143,7 @@ const RegisterPage = () => {
                 {error && (
                   <Alert status="error" borderRadius="md">
                     <AlertIcon />
-                    {error}
+                    <AlertDescription>{typeof error === 'string' ? error : extractErrorMessage(error, 'Registration failed')}</AlertDescription>
                   </Alert>
                 )}
 

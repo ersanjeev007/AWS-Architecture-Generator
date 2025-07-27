@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { extractApiErrorMessage } from '../utils/errorUtils';
 
 const AuthContext = createContext();
 
@@ -71,7 +72,7 @@ export const AuthProvider = ({ children }) => {
       if (!response.ok) {
         if (contentType && contentType.includes('application/json')) {
           const error = await response.json();
-          throw new Error(error.detail || 'Login failed');
+          throw new Error(extractApiErrorMessage({ response: { data: error } }, 'Login failed'));
         } else {
           // If we get HTML instead of JSON, it's likely a server issue
           const textResponse = await response.text();
@@ -112,7 +113,7 @@ export const AuthProvider = ({ children }) => {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Registration failed');
+        throw new Error(extractApiErrorMessage({ response: { data: error } }, 'Registration failed'));
       }
 
       const data = await response.json();
@@ -154,7 +155,7 @@ export const AuthProvider = ({ children }) => {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Update failed');
+        throw new Error(extractApiErrorMessage({ response: { data: error } }, 'Update failed'));
       }
 
       const updatedUser = await response.json();

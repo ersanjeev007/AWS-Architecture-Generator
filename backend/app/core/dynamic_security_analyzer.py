@@ -419,18 +419,30 @@ class DynamicSecurityAnalyzer:
         """Scan S3 bucket security"""
         threats = []
         
+        logger.info(f"Scanning S3 security for bucket: {bucket_name}")
+        
         try:
             if "s3" not in self.aws_clients:
+                logger.warning("S3 client not available")
                 return threats
             
             # Check bucket public access
             try:
+                logger.info(f"Checking public access block for bucket: {bucket_name}")
                 public_access = self.aws_clients["s3"].get_public_access_block(Bucket=bucket_name)
-                if not all(public_access.get("PublicAccessBlockConfiguration", {}).values()):
+                config = public_access.get("PublicAccessBlockConfiguration", {})
+                logger.info(f"Public access block config: {config}")
+                
+                # Check if all public access block settings are enabled
+                required_settings = ["BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets"]
+                missing_settings = [setting for setting in required_settings if not config.get(setting, False)]
+                
+                if missing_settings:
+                    logger.warning(f"Missing public access block settings: {missing_settings}")
                     threats.append(SecurityThreat(
                         id=f"s3_public_access_{bucket_name}",
-                        title="S3 Bucket Potentially Public",
-                        description=f"S3 bucket {bucket_name} may allow public access",
+                        title="S3 Bucket Public Access Not Fully Blocked",
+                        description=f"S3 bucket {bucket_name} doesn't have all public access block settings enabled",
                         severity=ThreatLevel.HIGH,
                         service="S3",
                         category="Data Exposure",
@@ -443,13 +455,42 @@ class DynamicSecurityAnalyzer:
                         ],
                         aws_documentation="https://docs.aws.amazon.com/s3/latest/userguide/access-control-block-public-access.html"
                     ))
-            except Exception:
-                pass  # Bucket might not exist or access denied
+                else:
+                    logger.info(f"All public access block settings are enabled for bucket: {bucket_name}")
+            except Exception as e:
+                logger.error(f"Error checking public access block for {bucket_name}: {str(e)}")
+                # If get_public_access_block fails, it might mean public access block is not configured
+                if "NoSuchPublicAccessBlockConfiguration" in str(e):
+                    logger.warning(f"No public access block configuration found for bucket: {bucket_name}")
+                    threats.append(SecurityThreat(
+                        id=f"s3_public_access_{bucket_name}",
+                        title="S3 Bucket Public Access Not Configured",
+                        description=f"S3 bucket {bucket_name} doesn't have public access block configured",
+                        severity=ThreatLevel.HIGH,
+                        service="S3",
+                        category="Data Exposure",
+                        detected_at=datetime.now(),
+                        status="active",
+                        remediation_steps=[
+                            "Enable S3 Block Public Access",
+                            "Review bucket policies",
+                            "Implement least privilege access"
+                        ],
+                        aws_documentation="https://docs.aws.amazon.com/s3/latest/userguide/access-control-block-public-access.html"
+                    ))
             
             # Check encryption
             try:
+                logger.info(f"Checking encryption for bucket: {bucket_name}")
                 encryption = self.aws_clients["s3"].get_bucket_encryption(Bucket=bucket_name)
-                if not encryption.get("ServerSideEncryptionConfiguration"):
+                logger.info(f"Encryption response: {encryption}")
+                # Check if encryption configuration exists and has rules
+                encryption_config = encryption.get("ServerSideEncryptionConfiguration", {})
+                rules = encryption_config.get("Rules", [])
+                logger.info(f"Encryption rules: {rules}")
+                
+                if not rules:
+                    logger.warning(f"No encryption rules found for bucket: {bucket_name}")
                     threats.append(SecurityThreat(
                         id=f"s3_encryption_{bucket_name}",
                         title="S3 Bucket Not Encrypted",
@@ -466,8 +507,29 @@ class DynamicSecurityAnalyzer:
                         ],
                         aws_documentation="https://docs.aws.amazon.com/s3/latest/userguide/bucket-encryption.html"
                     ))
-            except Exception:
-                pass
+                else:
+                    logger.info(f"Encryption is properly configured for bucket: {bucket_name}")
+            except Exception as e:
+                logger.error(f"Error checking encryption for {bucket_name}: {str(e)}")
+                # If get_bucket_encryption fails, it usually means no encryption is configured
+                if "ServerSideEncryptionConfigurationNotFoundError" in str(e) or "NoSuchEncryptionConfiguration" in str(e):
+                    logger.warning(f"No encryption configuration found for bucket: {bucket_name}")
+                    threats.append(SecurityThreat(
+                        id=f"s3_encryption_{bucket_name}",
+                        title="S3 Bucket Not Encrypted",
+                        description=f"S3 bucket {bucket_name} lacks server-side encryption",
+                        severity=ThreatLevel.MEDIUM,
+                        service="S3",
+                        category="Encryption",
+                        detected_at=datetime.now(),
+                        status="active",
+                        remediation_steps=[
+                            "Enable S3 server-side encryption",
+                            "Use AWS KMS keys",
+                            "Configure bucket key for cost optimization"
+                        ],
+                        aws_documentation="https://docs.aws.amazon.com/s3/latest/userguide/bucket-encryption.html"
+                    ))
             
         except Exception as e:
             logger.error(f"Error scanning S3 security: {str(e)}")

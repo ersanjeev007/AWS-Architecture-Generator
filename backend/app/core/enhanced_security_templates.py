@@ -796,7 +796,7 @@ resource "aws_iam_role_policy" "monitoring" {{
 resource "aws_security_group" "web_tier" {{
   name_prefix = "{project_name}-web-"
   description = "Security group for web tier with enhanced controls"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   # HTTPS traffic
   ingress {{
@@ -835,7 +835,7 @@ resource "aws_security_group" "web_tier" {{
 resource "aws_security_group" "app_tier" {{
   name_prefix = "{project_name}-app-"
   description = "Security group for application tier"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   # Allow traffic from web tier
   ingress {{
@@ -846,13 +846,13 @@ resource "aws_security_group" "app_tier" {{
     security_groups = [aws_security_group.web_tier.id]
   }}
 
-  # Allow traffic from load balancer
+  # Allow traffic from ALB (using VPC CIDR to avoid circular dependency)
   ingress {{
-    description     = "App traffic from ALB"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
+    description = "App traffic from ALB"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.main.cidr_block]
   }}
 
   # Outbound traffic
@@ -874,7 +874,7 @@ resource "aws_security_group" "app_tier" {{
 resource "aws_security_group" "db_tier" {{
   name_prefix = "{project_name}-db-"
   description = "Security group for database tier"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   # MySQL/Aurora
   ingress {{
@@ -915,7 +915,7 @@ resource "aws_security_group" "db_tier" {{
 resource "aws_security_group" "alb" {{
   name_prefix = "{project_name}-alb-"
   description = "Security group for Application Load Balancer"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   # HTTPS traffic
   ingress {{
@@ -935,13 +935,12 @@ resource "aws_security_group" "alb" {{
     cidr_blocks = ["0.0.0.0/0"]
   }}
 
-  # Outbound to application tier
+  # Outbound traffic
   egress {{
-    description     = "To application tier"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app_tier.id]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }}
 
   tags = {{
@@ -951,12 +950,13 @@ resource "aws_security_group" "alb" {{
   }}
 }}
 
+
 # Lambda security group (if using VPC Lambda)
 resource "aws_security_group" "lambda" {{
-  count       = contains(keys(var.services), "lambda") ? 1 : 0
+  count       = length(keys(var.services)) > 0 && contains(keys(var.services), "lambda") ? 1 : 0
   name_prefix = "{project_name}-lambda-"
   description = "Security group for Lambda functions"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   # Outbound traffic for Lambda
   egress {{
@@ -992,10 +992,10 @@ resource "aws_security_group" "lambda" {{
 
 # Bastion host security group (for secure access)
 resource "aws_security_group" "bastion" {{
-  count       = var.enable_bastion ? 1 : 0
+  count       = try(var.enable_bastion, false) ? 1 : 0
   name_prefix = "{project_name}-bastion-"
   description = "Security group for bastion host"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
 
   # SSH access from specific IP ranges
   ingress {{
@@ -1003,7 +1003,7 @@ resource "aws_security_group" "bastion" {{
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = var.allowed_ssh_cidrs
+    cidr_blocks = try(var.allowed_ssh_cidrs, ["10.0.0.0/8"])
   }}
 
   # Outbound SSH to private subnets
@@ -1012,7 +1012,7 @@ resource "aws_security_group" "bastion" {{
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [aws_subnet.private[0].cidr_block, aws_subnet.private[1].cidr_block]
+    cidr_blocks = [for subnet in data.aws_subnet.default : subnet.cidr_block]
   }}
 
   tags = {{
@@ -1029,292 +1029,383 @@ resource "aws_security_group" "bastion" {{
         """Generate Network ACLs for additional layer of security"""
         
         terraform_nacls = f'''
-# Network ACLs for Additional Security Layer
+# Network ACLs - Using Default VPC's Existing Network ACLs
+# Default VPC already has a default network ACL that allows all traffic
+# For production use, consider adding custom network ACL rules
 # Security Level: {security_level}
 
-# Public subnet NACL (for web tier)
-resource "aws_network_acl" "public" {{
-  vpc_id = aws_vpc.main.id
-  
-  # Allow HTTP inbound
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 80
-    to_port    = 80
-  }}
-  
-  # Allow HTTPS inbound
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 110
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 443
-    to_port    = 443
-  }}
-  
-  # Allow ephemeral ports inbound (for return traffic)
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 120
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 1024
-    to_port    = 65535
-  }}
-  
-  # Allow SSH from management network (if enabled)
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 130
-    action     = "allow"
-    cidr_block = "10.0.0.0/8"
-    from_port  = 22
-    to_port    = 22
-  }}
-  
-  # Allow all outbound traffic
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 80
-    to_port    = 80
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 110
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 443
-    to_port    = 443
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 120
-    action     = "allow"
-    cidr_block = "10.0.0.0/16"
-    from_port  = 8080
-    to_port    = 8080
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 130
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 1024
-    to_port    = 65535
-  }}
-  
-  tags = {{
-    Name        = "{project_name}-public-nacl"
-    Environment = var.environment
-    Tier        = "public"
-  }}
-}}
-
-# Private subnet NACL (for app tier)
-resource "aws_network_acl" "private" {{
-  vpc_id = aws_vpc.main.id
-  
-  # Allow traffic from public subnet
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = aws_subnet.public[0].cidr_block
-    from_port  = 8080
-    to_port    = 8080
-  }}
-  
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 110
-    action     = "allow"
-    cidr_block = aws_subnet.public[1].cidr_block
-    from_port  = 8080
-    to_port    = 8080
-  }}
-  
-  # Allow HTTPS outbound
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 443
-    to_port    = 443
-  }}
-  
-  # Allow database connections
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 110
-    action     = "allow"
-    cidr_block = aws_subnet.database[0].cidr_block
-    from_port  = 3306
-    to_port    = 3306
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 120
-    action     = "allow"
-    cidr_block = aws_subnet.database[1].cidr_block
-    from_port  = 3306
-    to_port    = 3306
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 130
-    action     = "allow"
-    cidr_block = aws_subnet.database[0].cidr_block
-    from_port  = 5432
-    to_port    = 5432
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 140
-    action     = "allow"
-    cidr_block = aws_subnet.database[1].cidr_block
-    from_port  = 5432
-    to_port    = 5432
-  }}
-  
-  # Allow ephemeral ports
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 150
-    action     = "allow"
-    cidr_block = "0.0.0.0/0"
-    from_port  = 1024
-    to_port    = 65535
-  }}
-  
-  tags = {{
-    Name        = "{project_name}-private-nacl"
-    Environment = var.environment
-    Tier        = "private"
-  }}
-}}
-
-# Database subnet NACL (most restrictive)
-resource "aws_network_acl" "database" {{
-  vpc_id = aws_vpc.main.id
-  
-  # Allow MySQL from private subnets
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = aws_subnet.private[0].cidr_block
-    from_port  = 3306
-    to_port    = 3306
-  }}
-  
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 110
-    action     = "allow"
-    cidr_block = aws_subnet.private[1].cidr_block
-    from_port  = 3306
-    to_port    = 3306
-  }}
-  
-  # Allow PostgreSQL from private subnets
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 120
-    action     = "allow"
-    cidr_block = aws_subnet.private[0].cidr_block
-    from_port  = 5432
-    to_port    = 5432
-  }}
-  
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 130
-    action     = "allow"
-    cidr_block = aws_subnet.private[1].cidr_block
-    from_port  = 5432
-    to_port    = 5432
-  }}
-  
-  # Allow Redis from private subnets
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 140
-    action     = "allow"
-    cidr_block = aws_subnet.private[0].cidr_block
-    from_port  = 6379
-    to_port    = 6379
-  }}
-  
-  ingress {{
-    protocol   = "tcp"
-    rule_no    = 150
-    action     = "allow"
-    cidr_block = aws_subnet.private[1].cidr_block
-    from_port  = 6379
-    to_port    = 6379
-  }}
-  
-  # Allow ephemeral ports for response traffic
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 100
-    action     = "allow"
-    cidr_block = aws_subnet.private[0].cidr_block
-    from_port  = 1024
-    to_port    = 65535
-  }}
-  
-  egress {{
-    protocol   = "tcp"
-    rule_no    = 110
-    action     = "allow"
-    cidr_block = aws_subnet.private[1].cidr_block
-    from_port  = 1024
-    to_port    = 65535
-  }}
-  
-  tags = {{
-    Name        = "{project_name}-database-nacl"
-    Environment = var.environment
-    Tier        = "database"
-  }}
-}}
-
-# Associate NACLs with subnets
-resource "aws_network_acl_association" "public" {{
-  count          = length(aws_subnet.public)
-  network_acl_id = aws_network_acl.public.id
-  subnet_id      = aws_subnet.public[count.index].id
-}}
-
-resource "aws_network_acl_association" "private" {{
-  count          = length(aws_subnet.private)
-  network_acl_id = aws_network_acl.private.id
-  subnet_id      = aws_subnet.private[count.index].id
-}}
-
-resource "aws_network_acl_association" "database" {{
-  count          = length(aws_subnet.database)
-  network_acl_id = aws_network_acl.database.id
-  subnet_id      = aws_subnet.database[count.index].id
-}}
+# Note: Default VPC subnets already have network ACL associations
+# Custom network ACLs are disabled to avoid conflicts with existing associations
 '''
         
         return terraform_nacls
+    
+    def generate_enhanced_waf_configuration(self, project_name: str, security_level: str) -> str:
+        """Generate enhanced WAF configuration with comprehensive protection rules"""
+        
+        terraform_waf = f'''
+# Enhanced AWS WAF Configuration
+# Security Level: {security_level}
+
+# WAF Web ACL for comprehensive web application protection
+resource "aws_wafv2_web_acl" "main" {{
+  name        = "{project_name}-waf"
+  description = "Enhanced WAF protection for {project_name}"
+  scope       = "REGIONAL"
+  
+  default_action {{
+    allow {{}}
+  }}
+  
+  # AWS Managed Rules - Core Rule Set (OWASP Top 10)
+  rule {{
+    name     = "AWSManagedRulesCore"
+    priority = 1
+    
+    override_action {{
+      none {{}}
+    }}
+    
+    statement {{
+      managed_rule_group_statement {{
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+        
+        # Exclude rules that might cause false positives
+        excluded_rule {{
+          name = "SizeRestrictions_BODY"
+        }}
+        
+        excluded_rule {{
+          name = "GenericRFI_BODY"
+        }}
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-core-rules"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # AWS Managed Rules - Known Bad Inputs
+  rule {{
+    name     = "AWSManagedRulesKnownBadInputs"
+    priority = 2
+    
+    override_action {{
+      none {{}}
+    }}
+    
+    statement {{
+      managed_rule_group_statement {{
+        name        = "AWSManagedRulesKnownBadInputsRuleSet"
+        vendor_name = "AWS"
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-bad-inputs"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # AWS Managed Rules - SQL Database Protection
+  rule {{
+    name     = "AWSManagedRulesSQLi"
+    priority = 3
+    
+    override_action {{
+      none {{}}
+    }}
+    
+    statement {{
+      managed_rule_group_statement {{
+        name        = "AWSManagedRulesSQLiRuleSet"
+        vendor_name = "AWS"
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-sqli"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # AWS Managed Rules - Linux Operating System Protection
+  rule {{
+    name     = "AWSManagedRulesLinux"
+    priority = 4
+    
+    override_action {{
+      none {{}}
+    }}
+    
+    statement {{
+      managed_rule_group_statement {{
+        name        = "AWSManagedRulesLinuxRuleSet"
+        vendor_name = "AWS"
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-linux"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # AWS Managed Rules - Windows Operating System Protection
+  rule {{
+    name     = "AWSManagedRulesWindows"
+    priority = 5
+    
+    override_action {{
+      none {{}}
+    }}
+    
+    statement {{
+      managed_rule_group_statement {{
+        name        = "AWSManagedRulesWindowsRuleSet"
+        vendor_name = "AWS"
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-windows"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # Rate Limiting Rule
+  rule {{
+    name     = "RateLimitRule"
+    priority = 6
+    
+    action {{
+      block {{}}
+    }}
+    
+    statement {{
+      rate_based_statement {{
+        limit              = 2000
+        aggregate_key_type = "IP"
+        
+        scope_down_statement {{
+          geo_match_statement {{
+            country_codes = ["US", "CA", "GB", "DE", "FR", "AU", "JP"]
+          }}
+        }}
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-rate-limit"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # Geographic Blocking Rule (block high-risk countries)
+  rule {{
+    name     = "GeoBlockRule"
+    priority = 7
+    
+    action {{
+      block {{}}
+    }}
+    
+    statement {{
+      geo_match_statement {{
+        country_codes = ["CN", "RU", "KP", "IR"]  # Customize based on your needs
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-geo-block"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # IP Reputation Rule
+  rule {{
+    name     = "IPReputationRule"
+    priority = 8
+    
+    override_action {{
+      none {{}}
+    }}
+    
+    statement {{
+      managed_rule_group_statement {{
+        name        = "AWSManagedRulesAmazonIpReputationList"
+        vendor_name = "AWS"
+      }}
+    }}
+    
+    visibility_config {{
+      cloudwatch_metrics_enabled = true
+      metric_name                = "{project_name}-waf-ip-reputation"
+      sampled_requests_enabled   = true
+    }}
+  }}
+  
+  # Bot Control Rule (if security level is high)
+  dynamic "rule" {{
+    for_each = var.security_level == "high" ? [1] : []
+    content {{
+      name     = "BotControlRule"
+      priority = 9
+      
+      override_action {{
+        none {{}}
+      }}
+      
+      statement {{
+        managed_rule_group_statement {{
+          name        = "AWSManagedRulesBotControlRuleSet"
+          vendor_name = "AWS"
+        }}
+      }}
+      
+      visibility_config {{
+        cloudwatch_metrics_enabled = true
+        metric_name                = "{project_name}-waf-bot-control"
+        sampled_requests_enabled   = true
+      }}
+    }}
+  }}
+  
+  tags = {{
+    Name        = "{project_name}-waf"
+    Environment = var.environment
+    Purpose     = "web-application-firewall"
+  }}
+  
+  visibility_config {{
+    cloudwatch_metrics_enabled = true
+    metric_name                = "{project_name}-waf"
+    sampled_requests_enabled   = true
+  }}
+}}
+
+# WAF Logging Configuration
+resource "aws_wafv2_web_acl_logging_configuration" "main" {{
+  resource_arn            = aws_wafv2_web_acl.main.arn
+  log_destination_configs = [aws_cloudwatch_log_group.waf_logs.arn]
+  
+  redacted_fields {{
+    single_header {{
+      name = "authorization"
+    }}
+  }}
+  
+  redacted_fields {{
+    single_header {{
+      name = "cookie"
+    }}
+  }}
+  
+  depends_on = [aws_cloudwatch_log_group.waf_logs]
+}}
+
+# CloudWatch Log Group for WAF Logs
+resource "aws_cloudwatch_log_group" "waf_logs" {{
+  name              = "/aws/wafv2/{project_name}"
+  retention_in_days = 30
+  
+  tags = {{
+    Name        = "{project_name}-waf-logs"
+    Environment = var.environment
+  }}
+}}
+
+# WAF IP Set for Allowed IPs (can be customized)
+resource "aws_wafv2_ip_set" "allowed_ips" {{
+  name               = "{project_name}-allowed-ips"
+  description        = "Allowed IP addresses for {project_name}"
+  scope              = "REGIONAL"
+  ip_address_version = "IPV4"
+  
+  addresses = var.allowed_ip_addresses
+  
+  tags = {{
+    Name        = "{project_name}-allowed-ips"
+    Environment = var.environment
+  }}
+}}
+
+# WAF IP Set for Blocked IPs
+resource "aws_wafv2_ip_set" "blocked_ips" {{
+  name               = "{project_name}-blocked-ips"
+  description        = "Blocked IP addresses for {project_name}"
+  scope              = "REGIONAL"
+  ip_address_version = "IPV4"
+  
+  addresses = var.blocked_ip_addresses
+  
+  tags = {{
+    Name        = "{project_name}-blocked-ips"
+    Environment = var.environment
+  }}
+}}
+
+# CloudWatch Dashboard for WAF Metrics
+resource "aws_cloudwatch_dashboard" "waf_dashboard" {{
+  dashboard_name = "{project_name}-waf-dashboard"
+  
+  dashboard_body = jsonencode({{
+    widgets = [
+      {{
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+        
+        properties = {{
+          metrics = [
+            ["AWS/WAFV2", "AllowedRequests", "WebACL", "{project_name}-waf", "Region", "us-east-1", "Rule", "ALL"],
+            [".", "BlockedRequests", ".", ".", ".", ".", ".", "."]
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = "us-east-1"
+          title   = "WAF Requests Overview"
+          period  = 300
+        }}
+      }},
+      {{
+        type   = "metric"
+        x      = 0
+        y      = 6
+        width  = 12
+        height = 6
+        
+        properties = {{
+          metrics = [
+            ["AWS/WAFV2", "BlockedRequests", "WebACL", "{project_name}-waf", "Region", "us-east-1", "Rule", "RateLimitRule"],
+            [".", ".", ".", ".", ".", ".", ".", "GeoBlockRule"],
+            [".", ".", ".", ".", ".", ".", ".", "IPReputationRule"]
+          ]
+          view    = "timeSeries"
+          stacked = false
+          region  = "us-east-1"
+          title   = "WAF Rule Blocks"
+          period  = 300
+        }}
+      }}
+    ]
+  }})
+}}
+'''
+        
+        return terraform_waf
     
     def generate_enhanced_security_services(self, project_name: str, security_level: str) -> str:
         """Generate enhanced AWS security services configuration"""
@@ -1462,7 +1553,7 @@ resource "aws_flow_log" "vpc" {{
   iam_role_arn   = aws_iam_role.flow_log[0].arn
   log_destination = aws_cloudwatch_log_group.vpc_flow_logs[0].arn
   traffic_type   = "ALL"
-  vpc_id         = aws_vpc.main.id
+  vpc_id         = data.aws_vpc.main.id
   
   tags = {{
     Name        = "{project_name}-vpc-flow-logs"
@@ -1820,7 +1911,7 @@ resource "aws_kms_alias" "secrets" {{
 {"" if not fips_required else f"""
 resource "aws_cloudhsm_v2_cluster" "main" {{
   hsm_type   = "hsm1.medium"
-  subnet_ids = [aws_subnet.private[0].id, aws_subnet.private[1].id]
+  subnet_ids = length(data.aws_subnet.default) > 1 ? [data.aws_subnet.default[0].id, data.aws_subnet.default[1].id] : [data.aws_subnet.default[0].id]
   
   tags = {{
     Name        = "{project_name}-cloudhsm"
@@ -1832,7 +1923,7 @@ resource "aws_cloudhsm_v2_cluster" "main" {{
 resource "aws_cloudhsm_v2_hsm" "main" {{
   count      = 2
   cluster_id = aws_cloudhsm_v2_cluster.main.cluster_id
-  subnet_id  = aws_subnet.private[count.index].id
+  subnet_id  = data.aws_subnet.default[count.index].id
   
   tags = {{
     Name        = "{project_name}-hsm-${{count.index + 1}}"
@@ -1983,7 +2074,7 @@ resource "aws_backup_plan" "hipaa" {{
 # Network Segmentation (Requirement 1)
 resource "aws_security_group" "pci_cardholder_data" {{
   name_prefix = "{project_name}-pci-chd-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "PCI-DSS cardholder data environment security group"
   
   # Restrict all traffic by default
@@ -2189,7 +2280,7 @@ resource "aws_sns_topic" "gdpr_breach_notification" {{
 # FIPS 140-2 Encryption (SC-13)
 resource "aws_cloudhsm_v2_cluster" "fedramp" {{
   hsm_type   = "hsm1.medium"
-  subnet_ids = [aws_subnet.private[0].id, aws_subnet.private[1].id]
+  subnet_ids = length(data.aws_subnet.default) > 1 ? [data.aws_subnet.default[0].id, data.aws_subnet.default[1].id] : [data.aws_subnet.default[0].id]
   
   tags = {{
     Name       = "{project_name}-fedramp-hsm"
@@ -2439,7 +2530,7 @@ resource "aws_macie2_classification_job" "s3_scan" {{
         return f'''# AWS CloudHSM - FIPS 140-2 Level 3 Compliance
 resource "aws_cloudhsm_v2_cluster" "main" {{
   hsm_type   = "hsm1.medium"
-  subnet_ids = aws_subnet.private[*].id
+  subnet_ids = data.aws_subnet.default[*].id
   
   tags = {{
     Name = "${{var.project_name}}-hsm-cluster"
@@ -2448,7 +2539,7 @@ resource "aws_cloudhsm_v2_cluster" "main" {{
 
 resource "aws_cloudhsm_v2_hsm" "main" {{
   cluster_id        = aws_cloudhsm_v2_cluster.main.cluster_id
-  subnet_id         = aws_subnet.private[0].id
+  subnet_id         = data.aws_subnet.default[0].id
   availability_zone = data.aws_availability_zones.available.names[0]
   
   tags = {{
@@ -2459,7 +2550,7 @@ resource "aws_cloudhsm_v2_hsm" "main" {{
 # CloudHSM Client Security Group
 resource "aws_security_group" "cloudhsm_client" {{
   name_prefix = "${{var.project_name}}-hsm-client-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "Security group for CloudHSM client"
   
   egress {{
@@ -2661,7 +2752,7 @@ resource "aws_flow_log" "vpc" {{
   iam_role_arn    = aws_iam_role.flow_logs.arn
   log_destination = aws_cloudwatch_log_group.vpc_flow_logs.arn
   traffic_type    = "ALL"
-  vpc_id          = aws_vpc.main.id
+  vpc_id          = data.aws_vpc.main.id
   
   tags = {{
     Name = "${{var.project_name}}-vpc-flow-logs"

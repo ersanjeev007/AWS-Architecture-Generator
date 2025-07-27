@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import List
+from typing import List, Dict, Optional
 from enum import Enum
 
 class TrafficVolume(str, Enum):
@@ -55,6 +55,7 @@ class QuestionnaireRequest(BaseModel):
     geographical_reach: GeographicalReach
     budget_range: BudgetRange
     compliance_requirements: List[ComplianceRequirement] = Field(default_factory=list)
+    services: Optional[Dict[str, List[str]]] = Field(default=None, description="User-selected AWS services by category")
 
     @validator('project_name')
     def validate_project_name(cls, v):

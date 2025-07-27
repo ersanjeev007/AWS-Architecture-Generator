@@ -181,3 +181,102 @@ class AWSAccountService:
             is_active=db_account.is_active,
             last_validated=db_account.last_validated
         )
+    
+    def validate_credentials(self, credentials: dict) -> dict:
+        """Validate AWS credentials and return detailed information"""
+        try:
+            # Create boto3 session with provided credentials
+            session = boto3.Session(
+                aws_access_key_id=credentials["aws_access_key_id"],
+                aws_secret_access_key=credentials["aws_secret_access_key"],
+                aws_session_token=credentials.get("aws_session_token"),
+                region_name=credentials.get("region", "us-west-2")
+            )
+            
+            # Test credentials with STS to get account info
+            sts = session.client('sts')
+            caller_identity = sts.get_caller_identity()
+            
+            # Test basic permissions
+            permissions = self._check_basic_permissions(session)
+            
+            return {
+                "valid": True,
+                "account_id": caller_identity.get("Account"),
+                "user_id": caller_identity.get("UserId"),
+                "arn": caller_identity.get("Arn"),
+                "region": credentials.get("region", "us-west-2"),
+                "permissions": permissions
+            }
+            
+        except (ClientError, NoCredentialsError) as e:
+            return {
+                "valid": False,
+                "error": f"Invalid AWS credentials: {str(e)}",
+                "account_id": None,
+                "region": credentials.get("region", "us-west-2"),
+                "permissions": {}
+            }
+        except Exception as e:
+            return {
+                "valid": False,
+                "error": f"Validation error: {str(e)}",
+                "account_id": None,
+                "region": credentials.get("region", "us-west-2"),
+                "permissions": {}
+            }
+    
+    def _check_basic_permissions(self, session: boto3.Session) -> dict:
+        """Check basic AWS permissions"""
+        permissions = {
+            "ec2": {"status": "unknown", "details": []},
+            "s3": {"status": "unknown", "details": []},
+            "iam": {"status": "unknown", "details": []},
+            "cloudformation": {"status": "unknown", "details": []}
+        }
+        
+        try:
+            # Test EC2 permissions
+            try:
+                ec2 = session.client('ec2')
+                ec2.describe_instances(MaxResults=5)
+                permissions["ec2"]["status"] = "granted"
+                permissions["ec2"]["details"].append("Can describe EC2 instances")
+            except Exception as e:
+                permissions["ec2"]["status"] = "denied"
+                permissions["ec2"]["details"].append(f"Cannot describe EC2 instances: {str(e)}")
+            
+            # Test S3 permissions
+            try:
+                s3 = session.client('s3')
+                s3.list_buckets()
+                permissions["s3"]["status"] = "granted"
+                permissions["s3"]["details"].append("Can list S3 buckets")
+            except Exception as e:
+                permissions["s3"]["status"] = "denied"
+                permissions["s3"]["details"].append(f"Cannot list S3 buckets: {str(e)}")
+            
+            # Test IAM permissions
+            try:
+                iam = session.client('iam')
+                iam.list_roles(MaxItems=5)
+                permissions["iam"]["status"] = "granted"
+                permissions["iam"]["details"].append("Can list IAM roles")
+            except Exception as e:
+                permissions["iam"]["status"] = "limited"
+                permissions["iam"]["details"].append(f"Limited IAM access: {str(e)}")
+            
+            # Test CloudFormation permissions
+            try:
+                cf = session.client('cloudformation')
+                cf.list_stacks(MaxResults=5)
+                permissions["cloudformation"]["status"] = "granted"
+                permissions["cloudformation"]["details"].append("Can list CloudFormation stacks")
+            except Exception as e:
+                permissions["cloudformation"]["status"] = "denied"
+                permissions["cloudformation"]["details"].append(f"Cannot access CloudFormation: {str(e)}")
+        
+        except Exception as e:
+            permissions["error"] = f"Permission check failed: {str(e)}"
+        
+        return permissions

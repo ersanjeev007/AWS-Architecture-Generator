@@ -49,6 +49,7 @@ import {
 } from 'react-icons/fa';
 import { SiAmazonaws } from 'react-icons/si';
 import { projectService } from '../../services/projectService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 import InfrastructureImportWizard from '../import/InfrastructureImportWizard';
 
 const ProjectsHomePage = () => {
@@ -74,7 +75,7 @@ const ProjectsHomePage = () => {
       setProjects(projectsData);
     } catch (err) {
       console.error('Error loading projects:', err);
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to load projects'));
     } finally {
       setLoading(false);
     }
@@ -159,7 +160,7 @@ const ProjectsHomePage = () => {
           <AlertIcon boxSize={6} />
           <VStack align="start" spacing={3}>
             <AlertDescription fontSize="lg" fontWeight="medium">
-              {error}
+              {typeof error === 'string' ? error : extractErrorMessage(error, 'Failed to load projects')}
             </AlertDescription>
             <Button onClick={loadProjects} colorScheme="awsBlue">
               Try Again

@@ -27,6 +27,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 import { FaSave, FaEye, FaHome } from 'react-icons/fa';
 import { projectService } from '../../services/projectService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 import { QUESTIONNAIRE_QUESTIONS } from '../../utils/constants';
 
 const ProjectEdit = () => {
@@ -63,7 +64,7 @@ const ProjectEdit = () => {
       setProject(projectData);
       setFormData(projectData.questionnaire_data);
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to load project'));
     } finally {
       setLoading(false);
     }

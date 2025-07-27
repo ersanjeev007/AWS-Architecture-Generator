@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { extractApiErrorMessage } from '../utils/errorUtils';
 
 const API_BASE_URL = '/api/v1/aws-accounts';
 
@@ -103,17 +104,8 @@ class AWSAccountService {
   }
 
   _handleError(error) {
-    if (error.response) {
-      // Server responded with error
-      const message = error.response.data?.detail || error.response.statusText;
-      return new Error(message);
-    } else if (error.request) {
-      // Network error
-      return new Error('Network error - please check your connection');
-    } else {
-      // Other error
-      return new Error(error.message || 'An unexpected error occurred');
-    }
+    const message = extractApiErrorMessage(error, 'An unexpected error occurred');
+    return new Error(message);
   }
 }
 

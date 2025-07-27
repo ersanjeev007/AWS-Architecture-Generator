@@ -8,6 +8,7 @@ from app.schemas.questionnaire import QuestionnaireRequest
 from app.services.project_service import ProjectService
 from app.services.architecture_service import ArchitectureService
 from app.core.architecture_generator import ArchitectureGenerator
+from app.api.routes.auth import get_current_user
 
 router = APIRouter()
 

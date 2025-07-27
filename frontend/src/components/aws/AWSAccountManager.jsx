@@ -105,7 +105,7 @@ const AWSAccountManager = () => {
     try {
       setLoading(true);
       const response = await apiClient.get('/aws-accounts');
-      setAwsAccounts(response.data.accounts || []);
+      setAwsAccounts(response.data || []);
     } catch (error) {
       toast({
         title: 'Failed to load AWS accounts',
@@ -122,7 +122,7 @@ const AWSAccountManager = () => {
   const validateAWSCredentials = async (credentials) => {
     try {
       setValidating(true);
-      const response = await apiClient.get('/production-infrastructure/validate-aws-credentials', {
+      const response = await apiClient.post('/aws-accounts/validate-credentials', null, {
         params: {
           aws_access_key_id: credentials.aws_access_key_id,
           aws_secret_access_key: credentials.aws_secret_access_key,

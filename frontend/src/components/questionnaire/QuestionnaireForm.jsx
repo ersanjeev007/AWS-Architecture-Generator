@@ -41,6 +41,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeftIcon, ChevronRightIcon, InfoIcon, ChevronDownIcon, ChevronUpIcon } from '@chakra-ui/icons';
 import { FaRocket, FaSave, FaQuestionCircle, FaLightbulb, FaAws, FaShieldAlt, FaDollarSign } from 'react-icons/fa';
 import { projectService } from '../../services/projectService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 import { QUESTIONNAIRE_QUESTIONS } from '../../utils/constants';
 
 const QuestionnaireForm = () => {
@@ -126,10 +127,12 @@ const QuestionnaireForm = () => {
       
     } catch (err) {
       console.error('Error generating architecture:', err);
-      setError(err.message);
+      const errorMessage = extractErrorMessage(err, 'An unexpected error occurred during architecture generation.');
+      
+      setError(typeof errorMessage === 'string' ? errorMessage : 'An unexpected error occurred during architecture generation.');
       toast({
         title: 'Generation Failed',
-        description: err.message,
+        description: typeof errorMessage === 'string' ? errorMessage : 'An unexpected error occurred during architecture generation.',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -161,9 +164,10 @@ const QuestionnaireForm = () => {
       navigate(`/project/${result.id}`);
       
     } catch (err) {
+      const errorMessage = extractErrorMessage(err, 'An unexpected error occurred while saving.');
       toast({
         title: 'Save Failed',
-        description: err.message,
+        description: typeof errorMessage === 'string' ? errorMessage : 'An unexpected error occurred while saving.',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -570,7 +574,7 @@ const QuestionnaireForm = () => {
               {error && (
                 <Alert status="error" borderRadius="md">
                   <AlertIcon />
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription>{typeof error === 'string' ? error : 'An error occurred'}</AlertDescription>
                 </Alert>
               )}
             </VStack>

@@ -56,10 +56,12 @@ import {
   FaRobot,
   FaEye,
   FaCogs,
+  FaFileAlt,
 } from 'react-icons/fa';
 import { SiTerraform, SiAmazonaws } from 'react-icons/si';
 import { projectService } from '../../services/projectService';
 import { awsAccountService } from '../../services/awsAccountService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 import DeploymentStatus from '../deployment/DeploymentStatus';
 import DeploymentHistory from '../deployment/DeploymentHistory';
 import EnhancedCostAnalysis from '../cost/EnhancedCostAnalysis';
@@ -94,6 +96,8 @@ const ArchitectureDashboard = () => {
   const [isDestroyDryRun, setIsDestroyDryRun] = useState(true);
   const [forceDestroy, setForceDestroy] = useState(false);
   const [deploymentStatus, setDeploymentStatus] = useState(null);
+  const [currentDeploymentId, setCurrentDeploymentId] = useState(null);
+  const [pollingInterval, setPollingInterval] = useState(null);
 
   useEffect(() => {
     if (!id) {
@@ -140,7 +144,7 @@ const ArchitectureDashboard = () => {
 
     } catch (err) {
       console.error('Error loading architecture:', err);
-      setError(err.message || 'Failed to load architecture');
+      setError(extractErrorMessage(err, 'Failed to load architecture'));
     } finally {
       setLoading(false);
     }
@@ -184,6 +188,55 @@ const ArchitectureDashboard = () => {
     }
   };
 
+  const startDeploymentPolling = (deploymentId) => {
+    // Clear any existing polling
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+    
+    // Start polling every 10 seconds
+    const interval = setInterval(async () => {
+      try {
+        const status = await awsAccountService.getDeploymentStatus(deploymentId);
+        
+        if (status.status === 'success' || status.status === 'failed') {
+          // Deployment finished, stop polling
+          clearInterval(interval);
+          setPollingInterval(null);
+          setCurrentDeploymentId(null);
+          setDeploying(false);
+          
+          // Show completion notification
+          toast({
+            title: status.status === 'success' ? 'Deployment Completed' : 'Deployment Failed',
+            description: status.message,
+            status: status.status === 'success' ? 'success' : 'error',
+            duration: 10000,
+            isClosable: true,
+          });
+          
+          // Refresh deployment status
+          await loadDeployments();
+          await loadDeploymentStatus();
+        }
+      } catch (err) {
+        console.error('Error polling deployment status:', err);
+        // Continue polling even if there's an error
+      }
+    }, 10000); // Poll every 10 seconds
+    
+    setPollingInterval(interval);
+  };
+
+  // Cleanup polling on component unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
+
   const handleDeployInfrastructure = async () => {
     if (!selectedAccount) {
       toast({
@@ -211,7 +264,7 @@ const ArchitectureDashboard = () => {
       toast({
         title: isDryRun ? 'Dry Run Complete' : 'Deployment Started',
         description: result.message,
-        status: result.status === 'success' ? 'success' : 'error',
+        status: result.status === 'running' || result.status === 'success' ? 'success' : 'error',
         duration: isDryRun ? 5000 : 10000,
         isClosable: true,
       });
@@ -221,6 +274,12 @@ const ArchitectureDashboard = () => {
       }
 
       onDeployModalClose();
+      
+      // For async deployments, start polling for status
+      if (result.status === 'running' && !isDryRun) {
+        setCurrentDeploymentId(result.deployment_id);
+        startDeploymentPolling(result.deployment_id);
+      }
       
       // Reload deployments and status after successful deployment
       await loadDeployments();
@@ -404,6 +463,105 @@ const ArchitectureDashboard = () => {
     }, 500);
   };
 
+  const downloadArchitectureDocument = () => {
+    try {
+      if (!currentArchitecture) return;
+
+      // Create markdown content
+      const markdown = `# ${currentArchitecture.project_name} - AWS Architecture
+
+## Project Overview
+${currentArchitecture.description || 'No description provided'}
+
+## Architecture Summary
+This document outlines the AWS cloud architecture designed for ${currentArchitecture.project_name}.
+
+## AWS Services Included
+${Object.entries(currentArchitecture.services || {}).map(([category, service]) => 
+  `- **${category.charAt(0).toUpperCase() + category.slice(1)}**: ${service}`
+).join('\n')}
+
+## Security Features
+${(currentArchitecture.security_features || []).map(feature => `- ${feature}`).join('\n')}
+
+## Cost Estimate
+- **Estimated Monthly Cost**: $${currentArchitecture.estimated_cost || 'N/A'}
+
+### Cost Breakdown
+${(currentArchitecture.cost_breakdown || []).map(item => 
+  `- **${item.service}**: $${item.cost}/month`
+).join('\n')}
+
+## Architecture Diagram
+[Architecture diagram would be displayed visually in the web interface]
+
+## Deployment Instructions
+
+### Terraform Deployment
+1. Download the Terraform template from the dashboard
+2. Install Terraform CLI
+3. Configure AWS credentials
+4. Run \`terraform init\`
+5. Run \`terraform plan\`
+6. Run \`terraform apply\`
+
+### CloudFormation Deployment
+1. Download the CloudFormation template from the dashboard
+2. Open AWS CloudFormation console
+3. Create new stack with the downloaded template
+4. Configure parameters as needed
+5. Launch the stack
+
+## Recommendations
+${(currentArchitecture.recommendations || []).map(rec => `- ${rec}`).join('\n')}
+
+## Security Considerations
+- All data is encrypted at rest and in transit
+- IAM roles follow least privilege principle
+- VPC provides network isolation
+- Security groups restrict access to necessary ports only
+
+## Monitoring and Maintenance
+- CloudWatch provides monitoring and alerting
+- AWS Config tracks configuration changes
+- CloudTrail logs all API activities
+- Regular security assessments recommended
+
+---
+*Generated by AWS Architecture Generator*
+*Date: ${new Date().toLocaleDateString()}*
+`;
+
+      // Create and download the file
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${currentArchitecture.project_name.replace(/\s+/g, '-').toLowerCase()}-architecture-document.md`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Download Complete',
+        description: 'Architecture document downloaded successfully',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        title: 'Download Failed',
+        description: 'Failed to download architecture document',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  };
+
   const handleRegenerateArchitecture = async () => {
     try {
       setRegenerating(true);
@@ -470,7 +628,7 @@ const ArchitectureDashboard = () => {
           <AlertIcon boxSize={6} />
           <VStack align="start" spacing={3}>
             <AlertDescription fontSize="lg" fontWeight="medium">
-              {error}
+              {extractErrorMessage(error, 'Failed to load architecture')}
             </AlertDescription>
             <Text fontSize="sm" color="gray.600">
               Project ID: {id}
@@ -509,6 +667,24 @@ const ArchitectureDashboard = () => {
   return (
     <Box maxW="7xl" mx="auto" p={6}>
       <VStack spacing={8} align="stretch">
+        {/* Background Deployment Status Banner */}
+        {currentDeploymentId && (
+          <Alert status="info" borderRadius="md">
+            <AlertIcon />
+            <VStack align="start" spacing={1} flex={1}>
+              <AlertDescription fontWeight="semibold">
+                Deployment running in background
+              </AlertDescription>
+              <Text fontSize="sm" color="gray.600">
+                Deployment ID: {currentDeploymentId.slice(0, 8)}... • Status updates every 10 seconds
+              </Text>
+            </VStack>
+            <Box>
+              <Spinner size="sm" color="blue.500" />
+            </Box>
+          </Alert>
+        )}
+
         {/* Header */}
         <Card shadow="lg">
           <CardHeader>
@@ -571,7 +747,7 @@ const ArchitectureDashboard = () => {
             <Text mb={6} color="gray.600">
               Download your infrastructure templates to deploy this architecture in your AWS account.
             </Text>
-            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+            <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
               {/* Terraform Download */}
               <Card variant="outline" borderColor="purple.200">
                 <CardBody textAlign="center">
@@ -613,6 +789,29 @@ const ArchitectureDashboard = () => {
                       w="full"
                     >
                       Download .yaml
+                    </Button>
+                  </VStack>
+                </CardBody>
+              </Card>
+
+              {/* Architecture Document Download */}
+              <Card variant="outline" borderColor="teal.200">
+                <CardBody textAlign="center">
+                  <VStack spacing={4}>
+                    <Icon as={FaFileAlt} color="teal.600" boxSize={10} />
+                    <VStack spacing={1}>
+                      <Heading size="sm" color="teal.600">Documentation</Heading>
+                      <Text fontSize="sm" color="gray.500">Architecture Guide</Text>
+                    </VStack>
+                    <Button
+                      colorScheme="teal"
+                      leftIcon={<FaDownload />}
+                      onClick={downloadArchitectureDocument}
+                      isDisabled={!currentArchitecture}
+                      size="sm"
+                      w="full"
+                    >
+                      Download .md
                     </Button>
                   </VStack>
                 </CardBody>
@@ -1021,8 +1220,12 @@ const ArchitectureDashboard = () => {
                 colorScheme={isDryRun ? "blue" : "green"}
                 onClick={handleDeployInfrastructure}
                 isLoading={deploying}
-                loadingText={isDryRun ? "Validating..." : "Deploying..."}
-                isDisabled={!selectedAccount || awsAccounts.length === 0}
+                loadingText={
+                  currentDeploymentId 
+                    ? "Deploying in background..." 
+                    : (isDryRun ? "Validating..." : "Starting deployment...")
+                }
+                isDisabled={!selectedAccount || awsAccounts.length === 0 || (currentDeploymentId && !isDryRun)}
                 leftIcon={isDryRun ? <FaSync /> : <FaRocket />}
               >
                 {isDryRun ? "Dry Run" : "Deploy Now"}

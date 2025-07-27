@@ -329,9 +329,7 @@ const ProductionArchitectureWorkflow = () => {
   };
   
   const startImportStatusPolling = (importId) => {
-    // Add initial delay to avoid immediate completion due to backend mock cycle
-    setTimeout(() => {
-      const pollInterval = setInterval(async () => {
+    const pollInterval = setInterval(async () => {
       try {
         const statusResponse = await apiClient.get(`/production-infrastructure/import-status/${importId}`);
         const statusData = statusResponse.data;
@@ -351,244 +349,7 @@ const ProductionArchitectureWorkflow = () => {
           clearInterval(pollInterval);
           setLoading(false);
           
-          // Update import data with final status and realistic demo data
-          setImportData(prev => ({
-            ...prev,
-            ...statusData,
-            // Demo data showing realistic AWS infrastructure
-            summary: {
-              total_resources: 23,
-              security_score: 78.5,
-              security_gaps: { critical: 1, high: 2, medium: 3, low: 1 },
-              total_estimated_cost: '$342.50'
-            },
-            security_gaps: [
-              {
-                gap_id: 'sg-001',
-                resource_id: 'i-0abcd1234efgh5678',
-                resource_type: 'EC2 Instance',
-                gap_type: 'public_access',
-                severity: 'critical',
-                description: 'EC2 instance allows unrestricted SSH access from 0.0.0.0/0',
-                can_auto_fix: true
-              },
-              {
-                gap_id: 'sg-002',
-                resource_id: 'my-app-bucket',
-                resource_type: 'S3 Bucket',
-                gap_type: 'encryption',
-                severity: 'high',
-                description: 'S3 bucket does not have server-side encryption enabled',
-                can_auto_fix: true
-              },
-              {
-                gap_id: 'sg-003',
-                resource_id: 'production-db',
-                resource_type: 'RDS Instance',
-                gap_type: 'backup_retention',
-                severity: 'high',
-                description: 'RDS instance backup retention period is less than 7 days',
-                can_auto_fix: false
-              },
-              {
-                gap_id: 'sg-004',
-                resource_id: 'vpc-main',
-                resource_type: 'VPC',
-                gap_type: 'flow_logs',
-                severity: 'medium',
-                description: 'VPC Flow Logs are not enabled for network monitoring',
-                can_auto_fix: true
-              },
-              {
-                gap_id: 'sg-005',
-                resource_id: 'cloudtrail',
-                resource_type: 'CloudTrail',
-                gap_type: 'log_encryption',
-                severity: 'medium',
-                description: 'CloudTrail logs are not encrypted at rest',
-                can_auto_fix: true
-              },
-              {
-                gap_id: 'sg-006',
-                resource_id: 'api-gateway',
-                resource_type: 'API Gateway',
-                gap_type: 'throttling',
-                severity: 'medium',
-                description: 'API Gateway throttling limits not configured',
-                can_auto_fix: false
-              },
-              {
-                gap_id: 'sg-007',
-                resource_id: 'lambda-function',
-                resource_type: 'Lambda Function',
-                gap_type: 'environment_vars',
-                severity: 'low',
-                description: 'Lambda function environment variables are not encrypted',
-                can_auto_fix: true
-              }
-            ],
-            imported_resources: [
-              {
-                resource_type: 'EC2 Instance',
-                resource_name: 'web-server-prod',
-                resource_id: 'i-0abcd1234efgh5678',
-                region: 'us-west-2',
-                security_compliant: false,
-                estimated_monthly_cost: 85.50
-              },
-              {
-                resource_type: 'S3 Bucket',
-                resource_name: 'my-app-bucket',
-                resource_id: 'my-app-bucket',
-                region: 'us-west-2',
-                security_compliant: false,
-                estimated_monthly_cost: 23.40
-              },
-              {
-                resource_type: 'RDS Instance',
-                resource_name: 'production-db',
-                resource_id: 'prod-mysql-db',
-                region: 'us-west-2',
-                security_compliant: false,
-                estimated_monthly_cost: 156.80
-              },
-              {
-                resource_type: 'Lambda Function',
-                resource_name: 'api-processor',
-                resource_id: 'api-processor-function',
-                region: 'us-west-2',
-                security_compliant: true,
-                estimated_monthly_cost: 12.30
-              },
-              {
-                resource_type: 'VPC',
-                resource_name: 'main-vpc',
-                resource_id: 'vpc-0123456789abcdef0',
-                region: 'us-west-2',
-                security_compliant: false,
-                estimated_monthly_cost: 0.00
-              },
-              {
-                resource_type: 'Application Load Balancer',
-                resource_name: 'web-app-alb',
-                resource_id: 'alb-web-app-123',
-                region: 'us-west-2',
-                security_compliant: true,
-                estimated_monthly_cost: 24.90
-              },
-              {
-                resource_type: 'API Gateway',
-                resource_name: 'main-api',
-                resource_id: 'api-gateway-main',
-                region: 'us-west-2',
-                security_compliant: false,
-                estimated_monthly_cost: 18.60
-              },
-              {
-                resource_type: 'CloudFront Distribution',
-                resource_name: 'cdn-main',
-                resource_id: 'E1234ABCD567890',
-                region: 'global',
-                security_compliant: true,
-                estimated_monthly_cost: 21.00
-              }
-            ],
-            terraform_code: `# Terraform configuration for imported AWS infrastructure
-# Generated on ${new Date().toLocaleDateString()}
-
-# VPC Configuration
-resource "aws_vpc" "main_vpc" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-  
-  tags = {
-    Name        = "main-vpc"
-    Environment = "production"
-    Imported    = "true"
-  }
-}
-
-# S3 Bucket
-resource "aws_s3_bucket" "app_bucket" {
-  bucket = "my-app-bucket"
-  
-  tags = {
-    Name        = "Application Data Bucket"
-    Environment = "production"
-    Imported    = "true"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "app_bucket_encryption" {
-  bucket = aws_s3_bucket.app_bucket.id
-  
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-# EC2 Instance
-resource "aws_instance" "web_server" {
-  ami           = "ami-0c02fb55956c7d316"
-  instance_type = "t3.medium"
-  
-  vpc_security_group_ids = [aws_security_group.web_sg.id]
-  subnet_id              = aws_subnet.public_subnet.id
-  
-  tags = {
-    Name        = "web-server-prod"
-    Environment = "production"
-    Imported    = "true"
-  }
-}
-
-# RDS Instance
-resource "aws_db_instance" "production_db" {
-  identifier = "production-db"
-  
-  engine         = "mysql"
-  engine_version = "8.0"
-  instance_class = "db.t3.medium"
-  
-  allocated_storage     = 100
-  max_allocated_storage = 500
-  storage_encrypted     = true
-  
-  db_name  = "appdb"
-  username = "admin"
-  
-  backup_retention_period = 7
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "sun:04:00-sun:05:00"
-  
-  tags = {
-    Name        = "production-db"
-    Environment = "production"
-    Imported    = "true"
-  }
-}
-
-# Application Load Balancer
-resource "aws_lb" "web_app_alb" {
-  name               = "web-app-alb"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets           = [aws_subnet.public_subnet.id, aws_subnet.public_subnet_2.id]
-  
-  enable_deletion_protection = false
-  
-  tags = {
-    Name        = "web-app-alb"
-    Environment = "production"
-    Imported    = "true"
-  }
-}`
-          }));
-          
+          // TODO: Fetch final results here
           toast({
             title: 'Import Complete',
             description: 'Infrastructure import completed successfully!',
@@ -614,11 +375,10 @@ resource "aws_lb" "web_app_alb" {
         console.error('Failed to poll import status:', error);
         // Continue polling unless it's a critical error
       }
-      }, 3000); // Poll every 3 seconds
-      
-      // Store interval ID to clear it later if needed
-      setImportData(prev => ({ ...prev, pollInterval }));
-    }, 2000); // Wait 2 seconds before starting to poll
+    }, 3000); // Poll every 3 seconds
+    
+    // Store interval ID to clear it later if needed
+    setImportData(prev => ({ ...prev, pollInterval }));
   };
   
   const handleApplySecurityPolicies = async (securityGapIds) => {
@@ -1916,7 +1676,6 @@ Generated with AWS Architecture Generator
     }
     
     // Show results when import is complete
-    
     return (
       <VStack spacing={6} align="stretch">
         {importData && (
@@ -1926,8 +1685,7 @@ Generated with AWS Architecture Generator
               <Box>
                 <AlertTitle>Infrastructure Import Complete!</AlertTitle>
                 <AlertDescription>
-                  Your AWS infrastructure has been analyzed and imported successfully. 
-                  Note: Detailed results will be available once the backend implements the results endpoint.
+                  Your AWS infrastructure has been analyzed and imported successfully
                 </AlertDescription>
               </Box>
             </Alert>
@@ -1982,14 +1740,14 @@ Generated with AWS Architecture Generator
             <TabPanels>
               <TabPanel>
                 <VStack spacing={4} align="stretch">
-                  {importData.security_gaps && importData.security_gaps.length > 0 ? (
+                  {importData.security_gaps.length > 0 ? (
                     <>
                       <Alert status="warning">
                         <AlertIcon />
                         <Box>
                           <AlertTitle>Security Issues Found</AlertTitle>
                           <AlertDescription>
-                            {importData.security_gaps?.length || 0} security gaps identified that should be addressed
+                            {importData.security_gaps.length} security gaps identified that should be addressed
                           </AlertDescription>
                         </Box>
                       </Alert>
@@ -2006,7 +1764,7 @@ Generated with AWS Architecture Generator
                             </Tr>
                           </Thead>
                           <Tbody>
-                            {importData.security_gaps?.map((gap) => (
+                            {importData.security_gaps.map((gap) => (
                               <Tr key={gap.gap_id}>
                                 <Td>{gap.resource_id}</Td>
                                 <Td>{gap.gap_type.replace('_', ' ')}</Td>
@@ -2036,7 +1794,7 @@ Generated with AWS Architecture Generator
                       <HStack spacing={4} justify="center">
                         <Button 
                           colorScheme="red"
-                          onClick={() => handleApplySecurityPolicies(importData.security_gaps?.map(g => g.gap_id) || [])}
+                          onClick={() => handleApplySecurityPolicies(importData.security_gaps.map(g => g.gap_id))}
                           isLoading={loading}
                           loadingText="Applying Fixes..."
                         >
@@ -2099,7 +1857,153 @@ Generated with AWS Architecture Generator
     </VStack>
     );
   };
-
+                                </Td>
+                                <Td>{gap.description}</Td>
+                                <Td>
+                                  {gap.can_auto_fix ? (
+                                    <Badge colorScheme="green">Auto-fix</Badge>
+                                  ) : (
+                                    <Badge colorScheme="gray">Manual</Badge>
+                                  )}
+                                </Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </TableContainer>
+                      
+                      <HStack spacing={4}>
+                        <Button
+                          colorScheme="red"
+                          onClick={() => handleApplySecurityPolicies(
+                            importData.security_gaps.filter(g => g.can_auto_fix).map(g => g.gap_id)
+                          )}
+                          isLoading={loading}
+                          loadingText="Applying Security Fixes..."
+                        >
+                          Apply All Auto-Fix Security Policies
+                        </Button>
+                        
+                        <Button
+                          colorScheme="blue"
+                          variant="outline"
+                          onClick={handleCreateProject}
+                          disabled={loading}
+                        >
+                          Create Project from Import
+                        </Button>
+                      </HStack>
+                    </>
+                  ) : (
+                    <VStack spacing={4}>
+                      <Alert status="success">
+                        <AlertIcon />
+                        <AlertTitle>No Security Issues Found</AlertTitle>
+                        <AlertDescription>
+                          Your infrastructure meets all security requirements
+                        </AlertDescription>
+                      </Alert>
+                      
+                      <Button
+                        colorScheme="blue"
+                        onClick={handleCreateProject}
+                        disabled={loading}
+                      >
+                        Create Project from Import
+                      </Button>
+                    </VStack>
+                  )}
+                </VStack>
+              </TabPanel>
+              
+              <TabPanel>
+                <TableContainer>
+                  <Table size="sm">
+                    <Thead>
+                      <Tr>
+                        <Th>Resource Name</Th>
+                        <Th>Type</Th>
+                        <Th>Region</Th>
+                        <Th>Security Status</Th>
+                        <Th>Monthly Cost</Th>
+                      </Tr>
+                    </Thead>
+                    <Tbody>
+                      {importData.imported_resources.map((resource) => (
+                        <Tr key={resource.resource_id}>
+                          <Td>{resource.resource_name}</Td>
+                          <Td>{resource.resource_type}</Td>
+                          <Td>{resource.region}</Td>
+                          <Td>
+                            {resource.security_compliant ? (
+                              <Badge colorScheme="green">Compliant</Badge>
+                            ) : (
+                              <Badge colorScheme="red">
+                                {resource.security_issues_count} Issues
+                              </Badge>
+                            )}
+                          </Td>
+                          <Td>${resource.estimated_monthly_cost}</Td>
+                        </Tr>
+                      ))}
+                    </Tbody>
+                  </Table>
+                </TableContainer>
+              </TabPanel>
+              
+              <TabPanel>
+                <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                  {Object.entries(importData.summary.compliance_status).map(([framework, status]) => (
+                    <Card key={framework}>
+                      <CardBody>
+                        <VStack align="start" spacing={2}>
+                          <HStack justify="space-between" width="100%">
+                            <Text fontWeight="bold">{framework}</Text>
+                            <Badge
+                              colorScheme={status.compliant ? 'green' : 'red'}
+                            >
+                              {status.status}
+                            </Badge>
+                          </HStack>
+                          <Progress 
+                            value={status.score} 
+                            colorScheme={status.score >= 80 ? 'green' : status.score >= 60 ? 'yellow' : 'red'}
+                            width="100%"
+                          />
+                          <Text fontSize="sm" color="gray.600">
+                            {status.score}% Compliant
+                          </Text>
+                        </VStack>
+                      </CardBody>
+                    </Card>
+                  ))}
+                </SimpleGrid>
+              </TabPanel>
+              
+              <TabPanel>
+                <Card>
+                  <CardHeader>
+                    <HStack justify="space-between">
+                      <Heading size="md">Generated Terraform Code</Heading>
+                      <Button size="sm" onClick={onTerraformModalOpen}>
+                        View Full Code
+                      </Button>
+                    </HStack>
+                  </CardHeader>
+                  <CardBody>
+                    <Code display="block" whiteSpace="pre" p={4} bg="gray.50" borderRadius="md">
+                      {importData.terraform_code?.substring(0, 1000) + '...' || 'Terraform code will be displayed here'}
+                    </Code>
+                  </CardBody>
+                </Card>
+              </TabPanel>
+            </TabPanels>
+          </Tabs>
+        </>
+      )}
+    </VStack>
+  );
+  
   const renderDeploymentProgress = () => (
     <VStack spacing={6} align="stretch">
       {deploymentStatus && (
@@ -2112,23 +2016,23 @@ Generated with AWS Architecture Generator
                 </Heading>
                 
                 <Progress 
-                  value={deploymentStatus?.progress_percentage || 0} 
+                  value={deploymentStatus.progress_percentage} 
                   colorScheme="blue" 
                   size="lg" 
                   width="100%"
                 />
                 
                 <Text fontSize="lg" fontWeight="bold">
-                  {(deploymentStatus?.progress_percentage || 0).toFixed(1)}% Complete
+                  {deploymentStatus.progress_percentage.toFixed(1)}% Complete
                 </Text>
                 
                 <Text color="gray.600">
-                  {deploymentStatus?.current_step || 'Processing...'}
+                  {deploymentStatus.current_step}
                 </Text>
                 
-                {deploymentStatus?.estimated_completion && (
+                {deploymentStatus.estimated_completion && (
                   <Text fontSize="sm" color="gray.500">
-                    Estimated completion: {deploymentStatus?.estimated_completion}
+                    Estimated completion: {deploymentStatus.estimated_completion}
                   </Text>
                 )}
               </VStack>
@@ -2141,18 +2045,18 @@ Generated with AWS Architecture Generator
             </CardHeader>
             <CardBody>
               <Code display="block" whiteSpace="pre-line" p={4} bg="gray.50" borderRadius="md" maxH="300px" overflowY="auto">
-                {deploymentStatus?.logs?.join('\n') || 'No logs available'}
+                {deploymentStatus.logs.join('\n')}
               </Code>
             </CardBody>
           </Card>
           
-          {deploymentStatus?.errors && deploymentStatus.errors.length > 0 && (
+          {deploymentStatus.errors.length > 0 && (
             <Alert status="error">
               <AlertIcon />
               <Box>
                 <AlertTitle>Deployment Errors</AlertTitle>
                 <AlertDescription>
-                  {deploymentStatus?.errors?.join(', ')}
+                  {deploymentStatus.errors.join(', ')}
                 </AlertDescription>
               </Box>
             </Alert>
@@ -2161,7 +2065,7 @@ Generated with AWS Architecture Generator
       )}
     </VStack>
   );
-
+  
   const renderWorkflowStep = () => {
     switch (workflowStep) {
       case 'choose':
@@ -2177,31 +2081,85 @@ Generated with AWS Architecture Generator
       case 'deploy':
         return renderDeploymentProgress();
       case 'complete':
-        return renderDeploymentProgress();
+        return (
+          <VStack spacing={6}>
+            <Alert status="success">
+              <AlertIcon />
+              <Box>
+                <AlertTitle>Deployment Complete!</AlertTitle>
+                <AlertDescription>
+                  Your AWS infrastructure has been successfully deployed with full security policies
+                </AlertDescription>
+              </Box>
+            </Alert>
+            
+            <HStack spacing={4}>
+              <Button colorScheme="blue" onClick={() => navigate('/dashboard')}>
+                View Dashboard
+              </Button>
+              <Button onClick={() => setWorkflowStep('choose')}>
+                Start New Project
+              </Button>
+            </HStack>
+          </VStack>
+        );
       default:
         return renderChooseApproach();
     }
   };
-
+  
   return (
-    <Box width="100%" maxWidth="1200px" mx="auto" p={6}>
+    <Box p={8} maxW="1200px" mx="auto">
       <VStack spacing={8} align="stretch">
+        {/* Header */}
+        <Box textAlign="center">
+          <Heading size="xl" mb={2}>
+            Production AWS Architecture Generator
+          </Heading>
+          <Text color="gray.600" fontSize="lg">  
+            Deploy production-ready AWS infrastructure with comprehensive security policies
+          </Text>
+        </Box>
+        
+        {/* Workflow Progress */}
         <Card>
           <CardBody>
-            <VStack spacing={4}>
-              <Heading textAlign="center" color="orange.500">
-                🏗️ Production Infrastructure Workflow
-              </Heading>
-              <Text textAlign="center" color="gray.600">
-                Deploy secure, scalable AWS infrastructure with best practices
-              </Text>
-            </VStack>
+            <HStack spacing={4} justify="center">
+              {workflowSteps.map((step, index) => (
+                <React.Fragment key={step.id}>
+                  <VStack spacing={2}>
+                    <Box
+                      p={3}
+                      borderRadius="full"
+                      bg={
+                        workflowStep === step.id ? 'blue.500' :
+                        ['review', 'import-review', 'deploy', 'complete'].includes(workflowStep) && index <= 2 ? 'green.500' :
+                        'gray.200'
+                      }
+                      color={
+                        workflowStep === step.id || (['review', 'import-review', 'deploy', 'complete'].includes(workflowStep) && index <= 2) ? 'white' : 'gray.500'
+                      }
+                    >
+                      <step.icon />
+                    </Box>
+                    <Text fontSize="sm" fontWeight="bold" textAlign="center">
+                      {step.title}
+                    </Text>
+                  </VStack>
+                  {index < workflowSteps.length - 1 && (
+                    <Box flex={1} height="2px" bg="gray.200" />
+                  )}
+                </React.Fragment>
+              ))}
+            </HStack>
           </CardBody>
         </Card>
         
+        {/* Main Content */}
         {renderWorkflowStep()}
       </VStack>
       
+      {/* Terraform Code Modal */}
       <Modal isOpen={isTerraformModalOpen} onClose={onTerraformModalClose} size="6xl">
         <ModalOverlay />
         <ModalContent>

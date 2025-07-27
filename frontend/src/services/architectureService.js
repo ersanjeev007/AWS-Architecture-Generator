@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { extractApiErrorMessage } from '../utils/errorUtils';
 
 class ArchitectureService {
   async generateArchitecture(questionnaireData) {
@@ -6,10 +7,7 @@ class ArchitectureService {
       const response = await apiClient.post('/architecture/generate', questionnaireData);
       return response.data;
     } catch (error) {
-      throw new Error(
-        error.response?.data?.detail || 
-        'Failed to generate architecture. Please try again.'
-      );
+      throw new Error(extractApiErrorMessage(error, 'Failed to generate architecture. Please try again.'));
     }
   }
 
@@ -21,10 +19,7 @@ class ArchitectureService {
       if (error.response?.status === 404) {
         throw new Error('Architecture not found');
       }
-      throw new Error(
-        error.response?.data?.detail || 
-        'Failed to retrieve architecture. Please try again.'
-      );
+      throw new Error(extractApiErrorMessage(error, 'Failed to retrieve architecture. Please try again.'));
     }
   }
 
@@ -33,10 +28,7 @@ class ArchitectureService {
       const response = await apiClient.get('/architecture/');
       return response.data;
     } catch (error) {
-      throw new Error(
-        error.response?.data?.detail || 
-        'Failed to list architectures. Please try again.'
-      );
+      throw new Error(extractApiErrorMessage(error, 'Failed to list architectures. Please try again.'));
     }
   }
 

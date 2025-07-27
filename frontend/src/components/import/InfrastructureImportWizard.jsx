@@ -66,6 +66,7 @@ import {
   FaCopy,
 } from 'react-icons/fa';
 import infrastructureImportService from '../../services/infrastructureImportService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 
 const InfrastructureImportWizard = ({ onClose }) => {
   const [currentStep, setCurrentStep] = useState(0);
@@ -153,7 +154,7 @@ const InfrastructureImportWizard = ({ onClose }) => {
       
       setCurrentStep(2);
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to scan infrastructure'));
       toast({
         title: 'Scan Failed',
         description: err.message,
@@ -195,7 +196,7 @@ const InfrastructureImportWizard = ({ onClose }) => {
         isClosable: true,
       });
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to generate templates'));
       toast({
         title: 'Generation Failed',
         description: err.message,
@@ -238,7 +239,7 @@ const InfrastructureImportWizard = ({ onClose }) => {
       // Navigate to the new project
       navigate(`/project/${response.project_id}`);
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to create project'));
       toast({
         title: 'Import Failed',
         description: err.message,

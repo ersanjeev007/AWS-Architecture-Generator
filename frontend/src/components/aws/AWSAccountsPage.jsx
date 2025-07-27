@@ -48,6 +48,7 @@ import {
   FaExclamationTriangle
 } from 'react-icons/fa';
 import { awsAccountService } from '../../services/awsAccountService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 
 const AWSAccountsPage = () => {
   const toast = useToast();
@@ -82,7 +83,7 @@ const AWSAccountsPage = () => {
       const accountsData = await awsAccountService.listAccounts();
       setAccounts(accountsData);
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to load AWS accounts'));
       toast({
         title: 'Failed to Load Accounts',
         description: err.message,
@@ -265,7 +266,7 @@ const AWSAccountsPage = () => {
         {error && (
           <Alert status="error" borderRadius="lg">
             <AlertIcon />
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{extractErrorMessage(error, 'An error occurred with AWS accounts')}</AlertDescription>
           </Alert>
         )}
 

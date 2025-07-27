@@ -195,6 +195,30 @@ variable "enable_deletion_protection" {
   description = "Enable deletion protection for critical resources"
   type        = bool
   default     = true
+}
+
+variable "services" {
+  description = "Map of services to enable"
+  type        = map(string)
+  default     = {}
+}
+
+variable "enable_bastion" {
+  description = "Enable bastion host for secure access"
+  type        = bool
+  default     = false
+}
+
+variable "allowed_ssh_cidrs" {
+  description = "CIDR blocks allowed for SSH access"
+  type        = list(string)
+  default     = ["10.0.0.0/8"]
+}
+
+variable "enable_scp" {
+  description = "Enable Service Control Policies"
+  type        = bool
+  default     = false
 }'''
     
     def _generate_terraform_data_sources(self) -> str:
@@ -208,7 +232,12 @@ data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}'''
     
     def _generate_terraform_kms(self, project_name: str) -> str:
-        return f'''# KMS Key for encryption
+        return f'''# Random ID for unique resource naming
+resource "random_id" "suffix" {{
+  byte_length = 4
+}}
+
+# KMS Key for encryption
 resource "aws_kms_key" "main" {{
   description             = "KMS key for {project_name}"
   deletion_window_in_days = 7
@@ -235,7 +264,7 @@ resource "aws_kms_key" "main" {{
 }}
 
 resource "aws_kms_alias" "main" {{
-  name          = "alias/${{var.project_name}}-key"
+  name          = "alias/${{var.project_name}}-key-${{random_id.suffix.hex}}"
   target_key_id = aws_kms_key.main.key_id
 }}'''
     
@@ -266,119 +295,53 @@ resource "random_password" "db_password" {{
 }}'''
     
     def _generate_terraform_vpc(self, project_name: str, security_level: str) -> str:
-        multi_az = security_level == "high"
+        # Always use multi-AZ since AWS requires minimum 2 AZs for ALB and RDS
+        multi_az = True
         
-        vpc_config = f'''# VPC Configuration
-resource "aws_vpc" "main" {{
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-  
-  tags = {{
-    Name = "${{var.project_name}}-vpc"
+        vpc_config = f'''# Use Default VPC and its existing resources
+data "aws_vpc" "main" {{
+  default = true
+}}
+
+# Get default subnets (already exist in default VPC)
+data "aws_subnets" "default" {{
+  filter {{
+    name   = "vpc-id"
+    values = [data.aws_vpc.main.id]
   }}
 }}
 
-# Internet Gateway
-resource "aws_internet_gateway" "main" {{
-  vpc_id = aws_vpc.main.id
-  
-  tags = {{
-    Name = "${{var.project_name}}-igw"
+data "aws_subnet" "default" {{
+  count = length(data.aws_subnets.default.ids)
+  id    = data.aws_subnets.default.ids[count.index]
+}}
+
+# Get existing internet gateway for default VPC
+data "aws_internet_gateway" "default" {{
+  filter {{
+    name   = "attachment.vpc-id"
+    values = [data.aws_vpc.main.id]
   }}
 }}
 
-# Public Subnets
-resource "aws_subnet" "public" {{
-  count                   = {2 if multi_az else 1}
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.${{count.index + 1}}.0/24"
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-  
-  tags = {{
-    Name = "${{var.project_name}}-public-${{count.index + 1}}"
-    Type = "public"
+# Get existing route table for default VPC
+data "aws_route_table" "default" {{
+  vpc_id = data.aws_vpc.main.id
+  filter {{
+    name   = "association.main"
+    values = ["true"]
   }}
 }}
 
-# Private Subnets
-resource "aws_subnet" "private" {{
-  count             = {2 if multi_az else 1}
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.${{count.index + 10}}.0/24"
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-  
-  tags = {{
-    Name = "${{var.project_name}}-private-${{count.index + 1}}"
-    Type = "private"
-  }}
-}}
-
-# Route Tables
-resource "aws_route_table" "public" {{
-  vpc_id = aws_vpc.main.id
-  
-  route {{
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.main.id
-  }}
-  
-  tags = {{
-    Name = "${{var.project_name}}-public-rt"
-  }}
-}}
-
-resource "aws_route_table_association" "public" {{
-  count          = length(aws_subnet.public)
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
+# Use default subnets for both public and private
+locals {{
+  # Use existing default subnets (they're all public by default)
+  public_subnet_ids = data.aws_subnets.default.ids
+  private_subnet_ids = data.aws_subnets.default.ids  # Same as public for simplicity
 }}'''
 
-        if multi_az:
-            vpc_config += '''
-
-# NAT Gateways for private subnets
-resource "aws_eip" "nat" {
-  count  = length(aws_subnet.public)
-  domain = "vpc"
-  
-  depends_on = [aws_internet_gateway.main]
-  
-  tags = {
-    Name = "${var.project_name}-nat-eip-${count.index + 1}"
-  }
-}
-
-resource "aws_nat_gateway" "main" {
-  count         = length(aws_subnet.public)
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
-  
-  tags = {
-    Name = "${var.project_name}-nat-gw-${count.index + 1}"
-  }
-}
-
-resource "aws_route_table" "private" {
-  count  = length(aws_subnet.private)
-  vpc_id = aws_vpc.main.id
-  
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
-  }
-  
-  tags = {
-    Name = "${var.project_name}-private-rt-${count.index + 1}"
-  }
-}
-
-resource "aws_route_table_association" "private" {
-  count          = length(aws_subnet.private)
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private[count.index].id
-}'''
+        # Default VPC already has internet connectivity for all subnets
+        # No additional NAT gateway or private route tables needed
         
         return vpc_config
     
@@ -386,7 +349,7 @@ resource "aws_route_table_association" "private" {
         return f'''# Security Groups
 resource "aws_security_group" "alb" {{
   name_prefix = "${{var.project_name}}-alb-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "Security group for Application Load Balancer"
   
   ingress {{
@@ -423,7 +386,7 @@ resource "aws_security_group" "alb" {{
 
 resource "aws_security_group" "app" {{
   name_prefix = "${{var.project_name}}-app-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "Security group for application servers"
   
   ingress {{
@@ -448,7 +411,7 @@ resource "aws_security_group" "app" {{
 
 resource "aws_security_group" "database" {{
   name_prefix = "${{var.project_name}}-db-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "Security group for database"
   
   ingress {{
@@ -456,7 +419,7 @@ resource "aws_security_group" "database" {{
     from_port       = 3306
     to_port         = 3306
     protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
+    security_groups = [aws_security_group.app_tier.id]
   }}
   
   tags = {{
@@ -533,11 +496,11 @@ resource "aws_wafv2_web_acl" "main" {{
     def _generate_terraform_alb(self, project_name: str, security_level: str) -> str:
         return f'''# Application Load Balancer
 resource "aws_lb" "main" {{
-  name               = "${{var.project_name}}-alb"
+  name               = "${{var.project_name}}-alb-${{random_id.suffix.hex}}"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets            = aws_subnet.public[*].id
+  subnets            = local.public_subnet_ids
   
   enable_deletion_protection = var.enable_deletion_protection
   
@@ -549,10 +512,10 @@ resource "aws_lb" "main" {{
 }}
 
 resource "aws_lb_target_group" "app" {{
-  name     = "${{var.project_name}}-tg"
+  name     = "${{var.project_name}}-tg-${{random_id.suffix.hex}}"
   port     = 8080
   protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  vpc_id   = data.aws_vpc.main.id
   
   health_check {{
     enabled             = true
@@ -573,44 +536,12 @@ resource "aws_lb_target_group" "app" {{
 
 resource "aws_lb_listener" "app" {{
   load_balancer_arn = aws_lb.main.arn
-  port              = "443"
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-  certificate_arn   = aws_acm_certificate.main.arn
-  
-  default_action {{
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.app.arn
-  }}
-}}
-
-resource "aws_lb_listener" "redirect" {{
-  load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
   
   default_action {{
-    type = "redirect"
-    
-    redirect {{
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }}
-  }}
-}}
-
-# SSL Certificate
-resource "aws_acm_certificate" "main" {{
-  domain_name       = "${{var.project_name}}.example.com"
-  validation_method = "DNS"
-  
-  lifecycle {{
-    create_before_destroy = true
-  }}
-  
-  tags = {{
-    Name = "${{var.project_name}}-cert"
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
   }}
 }}'''
     
@@ -621,7 +552,7 @@ resource "aws_launch_template" "app" {{
   image_id      = data.aws_ami.amazon_linux.id
   instance_type = "t3.micro"
   
-  vpc_security_group_ids = [aws_security_group.app.id]
+  vpc_security_group_ids = [aws_security_group.app_tier.id]
   
   {"key_name = aws_key_pair.main.key_name" if security_level in ["medium", "high"] else ""}
   
@@ -653,15 +584,19 @@ resource "aws_launch_template" "app" {{
     }}
   }}
   
-  user_data = base64encode(templatefile("${{path.module}}/user_data.sh", {{
-    project_name = var.project_name
-  }}))
+  user_data = base64encode(<<-EOF
+#!/bin/bash
+yum update -y
+yum install -y amazon-cloudwatch-agent
+echo "Project: ${{var.project_name}}" > /home/ec2-user/project_info.txt
+EOF
+  )
 }}
 
 # Auto Scaling Group
 resource "aws_autoscaling_group" "app" {{
-  name                = "${{var.project_name}}-asg"
-  vpc_zone_identifier = aws_subnet.private[*].id
+  name                = "${{var.project_name}}-asg-${{random_id.suffix.hex}}"
+  vpc_zone_identifier = local.private_subnet_ids
   target_group_arns   = [aws_lb_target_group.app.arn]
   health_check_type   = "ELB"
   health_check_grace_period = 300
@@ -684,7 +619,7 @@ resource "aws_autoscaling_group" "app" {{
 
 # IAM Role for EC2 instances
 resource "aws_iam_role" "app" {{
-  name = "${{var.project_name}}-app-role"
+  name = "${{var.project_name}}-app-role-${{random_id.suffix.hex}}"
   
   assume_role_policy = jsonencode({{
     Version = "2012-10-17"
@@ -701,12 +636,12 @@ resource "aws_iam_role" "app" {{
 }}
 
 resource "aws_iam_instance_profile" "app" {{
-  name = "${{var.project_name}}-app-profile"
+  name = "${{var.project_name}}-app-profile-${{random_id.suffix.hex}}"
   role = aws_iam_role.app.name
 }}
 
 resource "aws_iam_role_policy" "app" {{
-  name = "${{var.project_name}}-app-policy"
+  name = "${{var.project_name}}-app-policy-${{random_id.suffix.hex}}"
   role = aws_iam_role.app.id
   
   policy = jsonencode({{
@@ -720,13 +655,6 @@ resource "aws_iam_role_policy" "app" {{
           "s3:DeleteObject"
         ]
         Resource = "${{aws_s3_bucket.main.arn}}/*"
-      }},
-      {{
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = aws_secretsmanager_secret.db_credentials.arn
       }}
     ]
   }})
@@ -749,7 +677,7 @@ resource "aws_launch_template" "app" {{
   image_id      = data.aws_ami.amazon_linux.id
   instance_type = "t3.micro"
   
-  vpc_security_group_ids = [aws_security_group.app.id]
+  vpc_security_group_ids = [aws_security_group.app_tier.id]
   
   {"key_name = aws_key_pair.main.key_name" if security_level in ["medium", "high"] else ""}
   
@@ -781,15 +709,19 @@ resource "aws_launch_template" "app" {{
     }}
   }}
   
-  user_data = base64encode(templatefile("${{path.module}}/user_data.sh", {{
-    project_name = var.project_name
-  }}))
+  user_data = base64encode(<<-EOF
+#!/bin/bash
+yum update -y
+yum install -y amazon-cloudwatch-agent
+echo "Project: ${{var.project_name}}" > /home/ec2-user/project_info.txt
+EOF
+  )
 }}
 
 # Auto Scaling Group
 resource "aws_autoscaling_group" "app" {{
-  name                = "${{var.project_name}}-asg"
-  vpc_zone_identifier = aws_subnet.private[*].id
+  name                = "${{var.project_name}}-asg-${{random_id.suffix.hex}}"
+  vpc_zone_identifier = local.private_subnet_ids
   target_group_arns   = [aws_lb_target_group.app.arn]
   health_check_type   = "ELB"
   health_check_grace_period = 300
@@ -812,7 +744,7 @@ resource "aws_autoscaling_group" "app" {{
 
 # IAM Role for EC2 instances
 resource "aws_iam_role" "app" {{
-  name = "${{var.project_name}}-app-role"
+  name = "${{var.project_name}}-app-role-${{random_id.suffix.hex}}"
   
   assume_role_policy = jsonencode({{
     Version = "2012-10-17"
@@ -829,12 +761,12 @@ resource "aws_iam_role" "app" {{
 }}
 
 resource "aws_iam_instance_profile" "app" {{
-  name = "${{var.project_name}}-app-profile"
+  name = "${{var.project_name}}-app-profile-${{random_id.suffix.hex}}"
   role = aws_iam_role.app.name
 }}
 
 resource "aws_iam_role_policy" "app" {{
-  name = "${{var.project_name}}-app-policy"
+  name = "${{var.project_name}}-app-policy-${{random_id.suffix.hex}}"
   role = aws_iam_role.app.id
   
   policy = jsonencode({{
@@ -848,13 +780,6 @@ resource "aws_iam_role_policy" "app" {{
           "s3:DeleteObject"
         ]
         Resource = "${{aws_s3_bucket.main.arn}}/*"
-      }},
-      {{
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = aws_secretsmanager_secret.db_credentials.arn
       }}
     ]
   }})
@@ -876,7 +801,7 @@ data "aws_ami" "amazon_linux" {{
 
 # Key Pair for SSH access (if needed)
 resource "aws_key_pair" "main" {
-  key_name   = "${var.project_name}-key"
+  key_name   = "${var.project_name}-key-${random_id.suffix.hex}"
   public_key = file("${path.module}/public_key.pub")
 }'''
         
@@ -886,7 +811,7 @@ resource "aws_key_pair" "main" {
         return f'''# Lambda Functions for API Backend
 resource "aws_lambda_function" "api" {{
   filename         = "lambda_function.zip"
-  function_name    = "${{var.project_name}}-api"
+  function_name    = "${{var.project_name}}-api-${{random_id.suffix.hex}}"
   role            = aws_iam_role.lambda.arn
   handler         = "index.handler"
   runtime         = "python3.9"
@@ -897,12 +822,11 @@ resource "aws_lambda_function" "api" {{
   environment {{
     variables = {{
       ENVIRONMENT = var.environment
-      {"DB_SECRET_ARN = aws_secretsmanager_secret.db_credentials.arn" if security_level in ["medium", "high"] else ""}
     }}
   }}
   
   vpc_config {{
-    subnet_ids         = aws_subnet.private[*].id
+    subnet_ids         = local.private_subnet_ids
     security_group_ids = [aws_security_group.lambda.id]
   }}
   
@@ -979,7 +903,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {{
 # Lambda Security Group
 resource "aws_security_group" "lambda" {{
   name_prefix = "${{var.project_name}}-lambda-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "Security group for Lambda functions"
   
   egress {{
@@ -1002,7 +926,7 @@ resource "aws_security_group" "lambda" {{
         
         return f'''# ECS Cluster
 resource "aws_ecs_cluster" "main" {{
-  name = "${{var.project_name}}-cluster"
+  name = "${{var.project_name}}-cluster-${{random_id.suffix.hex}}"
   
   {container_insights}
   
@@ -1065,7 +989,7 @@ resource "aws_ecs_service" "app" {{
   launch_type     = "FARGATE"
   
   network_configuration {{
-    subnets          = aws_subnet.private[*].id
+    subnets          = local.private_subnet_ids
     security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = false
   }}
@@ -1126,7 +1050,7 @@ resource "aws_iam_role" "ecs_task" {{
 # ECS Security Group
 resource "aws_security_group" "ecs" {{
   name_prefix = "${{var.project_name}}-ecs-"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = data.aws_vpc.main.id
   description = "Security group for ECS tasks"
   
   ingress {{
@@ -1149,15 +1073,31 @@ resource "aws_security_group" "ecs" {{
 }}'''
     
     def _generate_terraform_database(self, project_name: str, services: Dict[str, str], security_level: str) -> str:
-        db_engine = services.get('database', 'mysql')
-        multi_az = security_level == "high"
+        db_service = services.get('database', 'none')
+        
+        # Generate appropriate database based on user selection
+        if 'dynamodb' in db_service.lower():
+            return self._generate_terraform_dynamodb(project_name, security_level)
+        elif 'postgres' in db_service.lower() or 'rds' in db_service.lower() or 'sql' in db_service.lower():
+            db_engine = 'postgres' if 'postgres' in db_service.lower() else 'mysql'
+            return self._generate_terraform_rds(project_name, db_engine, security_level)
+        elif 'mysql' in db_service.lower():
+            return self._generate_terraform_rds(project_name, 'mysql', security_level)
+        else:
+            # No database selected
+            return "# No database service selected"
+    
+    def _generate_terraform_rds(self, project_name: str, db_engine: str, security_level: str) -> str:
+            
+        # Always use multi-AZ since AWS requires minimum 2 AZs for RDS subnet groups
+        multi_az = True
         
         cloudwatch_logs = '''enabled_cloudwatch_logs_exports = ["error", "general", "slow-query"]''' if security_level in ["medium", "high"] else ""
         
         return f'''# RDS Database
 resource "aws_db_subnet_group" "main" {{
-  name       = "${{var.project_name}}-db-subnet-group"
-  subnet_ids = aws_subnet.private[*].id
+  name       = "${{var.project_name}}-db-subnet-group-${{random_id.suffix.hex}}"
+  subnet_ids = local.private_subnet_ids
   
   tags = {{
     Name = "${{var.project_name}}-db-subnet-group"
@@ -1165,7 +1105,7 @@ resource "aws_db_subnet_group" "main" {{
 }}
 
 resource "aws_db_instance" "main" {{
-  identifier = "${{var.project_name}}-database"
+  identifier = "${{var.project_name}}-database-${{random_id.suffix.hex}}"
   
   engine         = "{db_engine.lower()}"
   engine_version = "{self._get_db_version(db_engine)}"
@@ -1182,7 +1122,7 @@ resource "aws_db_instance" "main" {{
   manage_master_user_password = true
   {"master_user_secret_kms_key_id = aws_kms_key.main.arn" if security_level == "high" else ""}
   
-  vpc_security_group_ids = [aws_security_group.database.id]
+  vpc_security_group_ids = [aws_security_group.db_tier.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
   
   backup_retention_period = {7 if security_level in ["medium", "high"] else 1}
@@ -1201,6 +1141,84 @@ resource "aws_db_instance" "main" {{
   
   tags = {{
     Name = "${{var.project_name}}-database"
+  }}
+}}'''
+
+    def _generate_terraform_dynamodb(self, project_name: str, security_level: str) -> str:
+        """Generate DynamoDB table configuration"""
+        
+        # Enhanced features for higher security levels
+        point_in_time_recovery = "true" if security_level in ["medium", "high"] else "false"
+        deletion_protection = "true" if security_level == "high" else "false"
+        encryption_type = "CUSTOMER_MANAGED" if security_level == "high" else "DEFAULT"
+        
+        return f'''# DynamoDB Table
+resource "aws_dynamodb_table" "main" {{
+  name             = "${{var.project_name}}-table-${{random_id.suffix.hex}}"
+  billing_mode     = "PAY_PER_REQUEST"
+  hash_key         = "id"
+  deletion_protection_enabled = {deletion_protection}
+  
+  attribute {{
+    name = "id"
+    type = "S"
+  }}
+  
+  # Enable encryption
+  server_side_encryption {{
+    enabled     = true
+    kms_key_arn = {'"${{aws_kms_key.main.arn}}"' if security_level == "high" else 'null'}
+  }}
+  
+  # Enable point-in-time recovery
+  point_in_time_recovery {{
+    enabled = {point_in_time_recovery}
+  }}
+  
+  # Enable DynamoDB Streams for change capture
+  stream_enabled   = true
+  stream_view_type = "NEW_AND_OLD_IMAGES"
+  
+  tags = {{
+    Name = "${{var.project_name}}-dynamodb-table"
+  }}
+}}
+
+# DynamoDB Global Secondary Index (optional)
+resource "aws_dynamodb_table" "gsi_table" {{
+  count            = {1 if security_level in ["medium", "high"] else 0}
+  name             = "${{var.project_name}}-gsi-table-${{random_id.suffix.hex}}"
+  billing_mode     = "PAY_PER_REQUEST"
+  hash_key         = "gsi_id"
+  
+  attribute {{
+    name = "gsi_id"
+    type = "S"
+  }}
+  
+  attribute {{
+    name = "sort_key"
+    type = "S"
+  }}
+  
+  global_secondary_index {{
+    name     = "GSI1"
+    hash_key = "gsi_id"
+    range_key = "sort_key"
+    projection_type = "ALL"
+  }}
+  
+  server_side_encryption {{
+    enabled     = true
+    kms_key_arn = {'"${{aws_kms_key.main.arn}}"' if security_level == "high" else 'null'}
+  }}
+  
+  point_in_time_recovery {{
+    enabled = {point_in_time_recovery}
+  }}
+  
+  tags = {{
+    Name = "${{var.project_name}}-dynamodb-gsi-table"
   }}
 }}'''
     
@@ -1232,7 +1250,7 @@ resource "aws_s3_bucket_versioning" "main" {{
   }}
 }}
 
-resource "aws_s3_bucket_encryption_configuration" "main" {{
+resource "aws_s3_bucket_server_side_encryption_configuration" "main" {{
   bucket = aws_s3_bucket.main.id
   
   rule {{
@@ -1275,7 +1293,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "main" {{
     def _generate_terraform_monitoring(self, project_name: str) -> str:
         return f'''# CloudWatch Log Groups
 resource "aws_cloudwatch_log_group" "app" {{
-  name              = "/aws/application/${{var.project_name}}"
+  name              = "/aws/application/${{var.project_name}}-${{random_id.suffix.hex}}"
   retention_in_days = 30
   
   tags = {{
@@ -1316,7 +1334,7 @@ resource "aws_sns_topic" "alerts" {{
     def _generate_terraform_logging(self, project_name: str) -> str:
         return f'''# CloudTrail for Audit Logging
 resource "aws_cloudtrail" "main" {{
-  name                          = "${{var.project_name}}-trail"
+  name                          = "${{var.project_name}}-trail-${{random_id.suffix.hex}}"
   s3_bucket_name               = aws_s3_bucket.logs.id
   s3_key_prefix                = "cloudtrail"
   include_global_service_events = true
@@ -1387,7 +1405,7 @@ resource "aws_s3_bucket_policy" "cloudtrail_logs" {{
         return '''# Outputs
 output "vpc_id" {
   description = "ID of the VPC"
-  value       = aws_vpc.main.id
+  value       = data.aws_vpc.main.id
 }
 
 output "load_balancer_dns" {
@@ -1406,10 +1424,7 @@ output "database_endpoint" {
   sensitive   = true
 }
 
-output "api_gateway_url" {
-  description = "API Gateway URL"
-  value       = try(aws_api_gateway_deployment.main.invoke_url, "")
-}'''
+'''
     
     def _get_db_version(self, engine: str) -> str:
         """Get appropriate database version"""
@@ -2294,7 +2309,21 @@ Metadata:
           Value: !Ref Environment'''
     
     def _generate_cf_database(self, project_name: str, services: Dict[str, str], security_level: str) -> str:
-        db_engine = services.get('database', 'mysql')
+        db_service = services.get('database', 'none')
+        
+        # Generate appropriate database based on user selection
+        if 'dynamodb' in db_service.lower():
+            return self._generate_cf_dynamodb(project_name, security_level)
+        elif 'postgres' in db_service.lower() or 'rds' in db_service.lower() or 'sql' in db_service.lower():
+            db_engine = 'postgres' if 'postgres' in db_service.lower() else 'mysql'
+            return self._generate_cf_rds(project_name, db_engine, security_level)
+        elif 'mysql' in db_service.lower():
+            return self._generate_cf_rds(project_name, 'mysql', security_level)
+        else:
+            # No database selected
+            return "  # No database service selected"
+    
+    def _generate_cf_rds(self, project_name: str, db_engine: str, security_level: str) -> str:
         multi_az = security_level == "high"
         
         kms_encryption = '''
@@ -2354,6 +2383,76 @@ Metadata:
           Value: !Sub "${{ProjectName}}-database"
         - Key: Environment
           Value: !Ref Environment'''
+
+    def _generate_cf_dynamodb(self, project_name: str, security_level: str) -> str:
+        """Generate CloudFormation DynamoDB table configuration"""
+        
+        # Enhanced features for higher security levels
+        point_in_time_recovery = "true" if security_level in ["medium", "high"] else "false"
+        deletion_protection = "true" if security_level == "high" else "false"
+        
+        kms_encryption = '''
+      SSESpecification:
+        SSEEnabled: true
+        KMSMasterKeyId: !Ref MainKMSKey''' if security_level == "high" else '''
+      SSESpecification:
+        SSEEnabled: true'''
+        
+        gsi_config = '''
+  DynamoDBGSITable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-gsi-table"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: gsi_id
+          AttributeType: S
+        - AttributeName: sort_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: gsi_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: gsi_id
+              KeyType: HASH
+            - AttributeName: sort_key
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL''' + kms_encryption + f'''
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: {point_in_time_recovery}
+      Tags:
+        - Key: Name
+          Value: !Sub "${{ProjectName}}-dynamodb-gsi-table"
+        - Key: Environment
+          Value: !Ref Environment''' if security_level in ["medium", "high"] else ""
+        
+        return f'''  # DynamoDB Table
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${{ProjectName}}-table"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      DeletionProtectionEnabled: {deletion_protection}{kms_encryption}
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: {point_in_time_recovery}
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Name
+          Value: !Sub "${{ProjectName}}-dynamodb-table"
+        - Key: Environment
+          Value: !Ref Environment
+
+{gsi_config}'''
     
     def _generate_cf_s3(self, project_name: str, security_level: str) -> str:
         kms_encryption = '''

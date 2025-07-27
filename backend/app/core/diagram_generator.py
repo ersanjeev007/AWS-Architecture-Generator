@@ -10,39 +10,39 @@ class DiagramGenerator:
         # Service to icon mapping
         self.service_icons = {
             # Compute
-            'EC2': '🖥️',
-            'ECS': '🐳',
-            'EKS': '☸️',
-            'Lambda': '⚡',
-            'Fargate': '🚀',
+            'EC2': 'EC2',
+            'ECS': 'ECS',
+            'EKS': 'EKS',
+            'Lambda': 'Lambda',
+            'Fargate': 'Fargate',
             # Database
-            'RDS': '🗄️',
-            'DynamoDB': '⚡',
-            'Aurora': '🌟',
-            'ElastiCache': '⚡',
+            'RDS': 'RDS',
+            'DynamoDB': 'DynamoDB',
+            'Aurora': 'Aurora',
+            'ElastiCache': 'ElastiCache',
             # Storage
-            'S3': '🪣',
-            'EFS': '📁',
-            'EBS': '💾',
+            'S3': 'S3',
+            'EFS': 'EFS',
+            'EBS': 'EBS',
             # Network
-            'VPC': '🏠',
-            'ALB': '⚖️',
-            'NLB': '🔗',
-            'CloudFront': '🌐',
-            'Route53': '🎯',
-            'API Gateway': '🚪',
+            'VPC': 'VPC',
+            'ALB': 'ALB',
+            'NLB': 'NLB',
+            'CloudFront': 'CloudFront',
+            'Route53': 'Route53',
+            'API Gateway': 'API Gateway',
             # Security
-            'WAF': '🛡️',
-            'Security Groups': '🔒',
-            'NACLs': '🚨',
-            'IAM': '👤',
-            'KMS': '🔐',
-            'Secrets Manager': '🤐',
-            'Certificate Manager': '📜',
+            'WAF': 'WAF',
+            'Security Groups': 'Security Groups',
+            'NACLs': 'NACLs',
+            'IAM': 'IAM',
+            'KMS': 'KMS',
+            'Secrets Manager': 'Secrets Manager',
+            'Certificate Manager': 'Certificate Manager',
             # Monitoring
-            'CloudWatch': '📊',
-            'X-Ray': '🔍',
-            'CloudTrail': '📝',
+            'CloudWatch': 'CloudWatch',
+            'X-Ray': 'X-Ray',
+            'CloudTrail': 'CloudTrail',
         }
     
     def generate_diagram(self, services: Dict[str, str], questionnaire: QuestionnaireRequest) -> DiagramData:
@@ -99,11 +99,11 @@ class DiagramGenerator:
         
         # Internet layer
         internet_y = 50
-        nodes.append(self._create_node("internet", "🌐 Internet", 400, internet_y, "input", "#e3f2fd"))
+        nodes.append(self._create_node("internet", "Internet", 400, internet_y, "input", "#e3f2fd"))
         
         # Security perimeter
         if security_level in ["medium", "high"]:
-            nodes.append(self._create_node("route53", "🎯 Route53\n(DNS)", 400, internet_y + 80, "default", "#fff3e0"))
+            nodes.append(self._create_node("route53", "Route53\n(DNS)", 400, internet_y + 80, "default", "#fff3e0"))
             nodes.append(self._create_node("waf", "🛡️ WAF\n(Web Firewall)", 400, internet_y + 160, "default", "#ffebee"))
             edges.extend([
                 self._create_edge("internet", "route53"),
@@ -396,11 +396,15 @@ class DiagramGenerator:
     
     def _create_node(self, id: str, label: str, x: int, y: int, type: str = "default", bg_color: str = "#f5f5f5") -> DiagramNode:
         """Create a diagram node with consistent styling"""
+        # Remove emojis to avoid encoding issues
+        import re
+        clean_label = re.sub(r'[^\w\s\-\(\)\/\.\,\:]', '', label)
+        
         return DiagramNode(
             id=id,
             type=type,
             data={
-                "label": label,
+                "label": clean_label,
                 "style": {
                     "background": bg_color,
                     "border": "2px solid #333",

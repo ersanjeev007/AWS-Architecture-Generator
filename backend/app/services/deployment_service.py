@@ -2,6 +2,8 @@ import uuid
 import tempfile
 import subprocess
 import os
+import threading
+import asyncio
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -19,7 +21,7 @@ class DeploymentService:
         self.project_service = ProjectService()
     
     def deploy_infrastructure(self, db: Session, deployment_request: DeploymentRequest) -> DeploymentResponse:
-        """Deploy infrastructure to AWS"""
+        """Deploy infrastructure to AWS (starts async deployment and returns immediately)"""
         
         # Create deployment record
         deployment_id = str(uuid.uuid4())
@@ -35,7 +37,35 @@ class DeploymentService:
         db.add(deployment)
         db.commit()
         
+        # Start async deployment in background thread
+        thread = threading.Thread(
+            target=self._run_deployment_async,
+            args=(deployment_id, deployment_request),
+            daemon=True
+        )
+        thread.start()
+        
+        # Return immediately with running status
+        return DeploymentResponse(
+            deployment_id=deployment_id,
+            status="running",
+            message="Deployment started. Check status using deployment_id.",
+            output=""
+        )
+    
+    def _run_deployment_async(self, deployment_id: str, deployment_request: DeploymentRequest):
+        """Run the actual deployment in background thread"""
+        from app.database import SessionLocal
+        
+        # Create new DB session for this thread
+        db = SessionLocal()
+        
         try:
+            # Get the deployment record
+            deployment = db.query(DeploymentDB).filter(DeploymentDB.id == deployment_id).first()
+            if not deployment:
+                return
+            
             # Get AWS credentials
             credentials = self.aws_account_service.get_credentials(db, deployment_request.aws_account_id)
             if not credentials:
@@ -50,7 +80,8 @@ class DeploymentService:
                 result = self._deploy_terraform(
                     project.architecture_data.get("terraform_template", ""),
                     credentials,
-                    deployment_request.dry_run
+                    deployment_request.dry_run,
+                    project
                 )
             elif deployment_request.template_type == "cloudformation":
                 result = self._deploy_cloudformation(
@@ -70,13 +101,6 @@ class DeploymentService:
             
             db.commit()
             
-            return DeploymentResponse(
-                deployment_id=deployment_id,
-                status="success",
-                message="Deployment completed successfully" if not deployment_request.dry_run else "Dry run completed successfully",
-                output=result.get("output", "")
-            )
-            
         except Exception as e:
             # Update deployment record with failure
             deployment.status = "failed"
@@ -85,12 +109,8 @@ class DeploymentService:
             
             db.commit()
             
-            return DeploymentResponse(
-                deployment_id=deployment_id,
-                status="failed",
-                message=f"Deployment failed: {str(e)}",
-                error=str(e)
-            )
+        finally:
+            db.close()
     
     def get_deployment_status(self, db: Session, deployment_id: str) -> Optional[DeploymentResponse]:
         """Get deployment status"""
@@ -107,7 +127,7 @@ class DeploymentService:
         )
     
     def destroy_infrastructure(self, db: Session, destroy_request: DestroyRequest) -> DeploymentResponse:
-        """Destroy deployed infrastructure"""
+        """Destroy deployed infrastructure (starts async destroy and returns immediately)"""
         
         # Get original deployment record
         original_deployment = db.query(DeploymentDB).filter(
@@ -137,7 +157,37 @@ class DeploymentService:
         db.add(destroy_deployment)
         db.commit()
         
+        # Start async destroy in background thread
+        thread = threading.Thread(
+            target=self._run_destroy_async,
+            args=(destroy_deployment_id, destroy_request, original_deployment.id),
+            daemon=True
+        )
+        thread.start()
+        
+        # Return immediately with running status
+        return DeploymentResponse(
+            deployment_id=destroy_deployment_id,
+            status="running",
+            message="Destroy operation started. Check status using deployment_id.",
+            output=""
+        )
+    
+    def _run_destroy_async(self, destroy_deployment_id: str, destroy_request: DestroyRequest, original_deployment_id: str):
+        """Run the actual destroy operation in background thread"""
+        from app.database import SessionLocal
+        
+        # Create new DB session for this thread
+        db = SessionLocal()
+        
         try:
+            # Get the destroy deployment record
+            destroy_deployment = db.query(DeploymentDB).filter(DeploymentDB.id == destroy_deployment_id).first()
+            original_deployment = db.query(DeploymentDB).filter(DeploymentDB.id == original_deployment_id).first()
+            
+            if not destroy_deployment or not original_deployment:
+                return
+            
             # Get AWS credentials
             credentials = self.aws_account_service.get_credentials(db, destroy_request.aws_account_id)
             if not credentials:
@@ -154,7 +204,8 @@ class DeploymentService:
                     credentials,
                     original_deployment.terraform_state_path,
                     destroy_request.dry_run,
-                    destroy_request.force_destroy
+                    destroy_request.force_destroy,
+                    project
                 )
             elif destroy_request.template_type == "cloudformation":
                 result = self._destroy_cloudformation(
@@ -178,13 +229,6 @@ class DeploymentService:
             
             db.commit()
             
-            return DeploymentResponse(
-                deployment_id=destroy_deployment_id,
-                status="success",
-                message="Infrastructure destroyed successfully" if not destroy_request.dry_run else "Destroy dry run completed successfully",
-                output=result.get("output", "")
-            )
-            
         except Exception as e:
             # Update destroy deployment record with failure
             destroy_deployment.status = "failed"
@@ -193,12 +237,8 @@ class DeploymentService:
             
             db.commit()
             
-            return DeploymentResponse(
-                deployment_id=destroy_deployment_id,
-                status="failed",
-                message=f"Infrastructure destruction failed: {str(e)}",
-                error=str(e)
-            )
+        finally:
+            db.close()
     
     def list_deployments(self, db: Session, project_id: str) -> list:
         """List all deployments for a project"""
@@ -280,7 +320,7 @@ class DeploymentService:
             }
         }
     
-    def _deploy_terraform(self, terraform_template: str, credentials: dict, dry_run: bool) -> dict:
+    def _deploy_terraform(self, terraform_template: str, credentials: dict, dry_run: bool, project=None) -> dict:
         """Deploy using Terraform"""
         if not terraform_template:
             raise ValueError("No Terraform template found")
@@ -290,6 +330,13 @@ class DeploymentService:
             tf_file = os.path.join(temp_dir, "main.tf")
             with open(tf_file, 'w') as f:
                 f.write(terraform_template)
+            
+            # Create terraform.tfvars file with project variables
+            if project:
+                tfvars_content = self._create_terraform_vars(project, credentials)
+                tfvars_file = os.path.join(temp_dir, "terraform.tfvars")
+                with open(tfvars_file, 'w') as f:
+                    f.write(tfvars_content)
             
             # Set environment variables for AWS credentials
             env = os.environ.copy()
@@ -413,7 +460,7 @@ class DeploymentService:
         except Exception as e:
             raise Exception(f"CloudFormation deployment failed: {str(e)}")
     
-    def _destroy_terraform(self, terraform_template: str, credentials: dict, state_path: str, dry_run: bool, force_destroy: bool) -> dict:
+    def _destroy_terraform(self, terraform_template: str, credentials: dict, state_path: str, dry_run: bool, force_destroy: bool, project=None) -> dict:
         """Destroy using Terraform"""
         if not terraform_template:
             raise ValueError("No Terraform template found")
@@ -423,6 +470,13 @@ class DeploymentService:
             tf_file = os.path.join(temp_dir, "main.tf")
             with open(tf_file, 'w') as f:
                 f.write(terraform_template)
+            
+            # Create terraform.tfvars file with project variables
+            if project:
+                tfvars_content = self._create_terraform_vars(project, credentials)
+                tfvars_file = os.path.join(temp_dir, "terraform.tfvars")
+                with open(tfvars_file, 'w') as f:
+                    f.write(tfvars_content)
             
             # If we have a state file, restore it
             if state_path and os.path.exists(state_path):
@@ -563,3 +617,104 @@ class DeploymentService:
                 
         except Exception as e:
             raise Exception(f"CloudFormation destruction failed: {str(e)}")
+    
+    def _create_terraform_vars(self, project, credentials: dict) -> str:
+        """Create terraform.tfvars content from project data"""
+        import json
+        
+        # Clean project name for AWS resource naming
+        project_name_clean = project.project_name.lower().replace(' ', '-').replace('_', '-')
+        
+        # Start with basic project variables
+        tfvars = f'''# Terraform variables for project: {project.project_name}
+project_name = "{project_name_clean}"
+region = "{credentials['region_name']}"
+'''
+        
+        # Add questionnaire data as variables if available
+        if project.questionnaire_data:
+            questionnaire = project.questionnaire_data
+            
+            # Extract common variables from questionnaire
+            if 'environment' in questionnaire:
+                tfvars += f'environment = "{questionnaire["environment"]}"\n'
+            
+            if 'company_name' in questionnaire:
+                tfvars += f'company_name = "{questionnaire["company_name"]}"\n'
+            
+            if 'budget_range' in questionnaire:
+                tfvars += f'budget_range = "{questionnaire["budget_range"]}"\n'
+            
+            if 'expected_users' in questionnaire:
+                tfvars += f'expected_users = "{questionnaire["expected_users"]}"\n'
+            
+            if 'compliance_requirements' in questionnaire:
+                compliance_list = questionnaire["compliance_requirements"]
+                if isinstance(compliance_list, list):
+                    compliance_str = '", "'.join(compliance_list)
+                    tfvars += f'compliance_requirements = ["{compliance_str}"]\n'
+                else:
+                    tfvars += f'compliance_requirements = ["{compliance_list}"]\n'
+            
+            if 'backup_requirements' in questionnaire:
+                tfvars += f'backup_requirements = "{questionnaire["backup_requirements"]}"\n'
+            
+            if 'monitoring_level' in questionnaire:
+                tfvars += f'monitoring_level = "{questionnaire["monitoring_level"]}"\n'
+            
+            if 'high_availability' in questionnaire:
+                tfvars += f'high_availability = {str(questionnaire["high_availability"]).lower()}\n'
+            
+            if 'multi_region' in questionnaire:
+                tfvars += f'multi_region = {str(questionnaire["multi_region"]).lower()}\n'
+            
+            # Add application-specific variables
+            if 'application_type' in questionnaire:
+                tfvars += f'application_type = "{questionnaire["application_type"]}"\n'
+            
+            if 'database_type' in questionnaire:
+                tfvars += f'database_type = "{questionnaire["database_type"]}"\n'
+            
+            if 'storage_requirements' in questionnaire:
+                tfvars += f'storage_requirements = "{questionnaire["storage_requirements"]}"\n'
+            
+            # Add security-related variables
+            if 'security_level' in questionnaire:
+                tfvars += f'security_level = "{questionnaire["security_level"]}"\n'
+            
+            if 'data_sensitivity' in questionnaire:
+                tfvars += f'data_sensitivity = "{questionnaire["data_sensitivity"]}"\n'
+            
+            if 'encryption_requirements' in questionnaire:
+                tfvars += f'encryption_requirements = "{questionnaire["encryption_requirements"]}"\n'
+        
+        # Add project description if available
+        if project.description:
+            # Escape quotes in description
+            escaped_description = project.description.replace('"', '\\"').replace('\n', '\\n')
+            tfvars += f'project_description = "{escaped_description}"\n'
+        
+        # Add timestamp for unique resource naming
+        from datetime import datetime
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        tfvars += f'deployment_timestamp = "{timestamp}"\n'
+        
+        # Add additional required variables with defaults
+        tfvars += f'services = {{\n'
+        if project.questionnaire_data:
+            questionnaire = project.questionnaire_data
+            if 'database' in questionnaire:
+                tfvars += f'  database = "{questionnaire["database"]}"\n'
+            if 'load_balancer' in questionnaire:
+                tfvars += f'  load_balancer = "application"\n'
+            if 'lambda' in questionnaire:
+                tfvars += f'  lambda = "true"\n'
+        tfvars += f'}}\n'
+        
+        # Security-related variables
+        tfvars += f'enable_bastion = false\n'
+        tfvars += f'allowed_ssh_cidrs = ["10.0.0.0/8"]\n'
+        tfvars += f'enable_deletion_protection = false\n'
+        tfvars += f'enable_scp = false\n'
+        
+        return tfvars

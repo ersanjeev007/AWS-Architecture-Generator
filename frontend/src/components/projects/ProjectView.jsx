@@ -19,6 +19,7 @@ import {
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { FaEdit, FaEye, FaHome, FaTrash } from 'react-icons/fa';
 import { projectService } from '../../services/projectService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 import ArchitectureDashboard from '../architecture/ArchitectureDashboard';
 
 const ProjectView = () => {
@@ -44,7 +45,7 @@ const ProjectView = () => {
       setProject(projectData);
       setArchitecture(architectureData);
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to load project'));
     } finally {
       setLoading(false);
     }

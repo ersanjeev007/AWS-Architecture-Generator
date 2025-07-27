@@ -71,15 +71,21 @@ class ArchitectureGenerator:
         }
     
     def _select_services(self, questionnaire: QuestionnaireRequest) -> Dict[str, str]:
-        """Select appropriate AWS services based on requirements"""
+        """Select appropriate AWS services based on requirements and user preferences"""
+        
+        # If user has provided specific service selections, use those preferentially
+        if questionnaire.services:
+            return self._process_user_selected_services(questionnaire.services, questionnaire)
+        
+        # Use default selection logic
         services = {}
         
-        # Get string values (handle both enum and string inputs)
-        compute_pref = questionnaire.compute_preference if isinstance(questionnaire.compute_preference, str) else questionnaire.compute_preference.value
-        database_type = questionnaire.database_type if isinstance(questionnaire.database_type, str) else questionnaire.database_type.value
-        storage_needs = questionnaire.storage_needs if isinstance(questionnaire.storage_needs, str) else questionnaire.storage_needs.value
-        traffic_volume = questionnaire.traffic_volume if isinstance(questionnaire.traffic_volume, str) else questionnaire.traffic_volume.value
-        geographical_reach = questionnaire.geographical_reach if isinstance(questionnaire.geographical_reach, str) else questionnaire.geographical_reach.value
+        # Get string values (handle both enum and string inputs), with defaults for None values
+        compute_pref = self._get_preference_value(questionnaire.compute_preference, "serverless")
+        database_type = self._get_preference_value(questionnaire.database_type, "nosql")
+        storage_needs = self._get_preference_value(questionnaire.storage_needs, "moderate")
+        traffic_volume = self._get_preference_value(questionnaire.traffic_volume, "medium")
+        geographical_reach = self._get_preference_value(questionnaire.geographical_reach, "single_region")
         
         # Compute services
         if compute_pref == "serverless":
@@ -117,6 +123,129 @@ class ArchitectureGenerator:
         
         return services
     
+    def _process_user_selected_services(self, user_services: Dict[str, List[str]], questionnaire: QuestionnaireRequest) -> Dict[str, str]:
+        """Process user-selected services and convert to the expected format"""
+        services = {}
+        
+        # Map service categories to primary services
+        service_mapping = {
+            'compute': {
+                'Lambda': 'AWS Lambda',
+                'EC2': 'Amazon EC2', 
+                'ECS': 'Amazon ECS/Fargate',
+                'Fargate': 'Amazon ECS/Fargate',
+                'Batch': 'AWS Batch',
+                'SageMaker': 'Amazon SageMaker'
+            },
+            'database': {
+                'DynamoDB': 'Amazon DynamoDB',
+                'RDS': 'Amazon RDS',
+                'Aurora': 'Amazon Aurora',
+                'ElastiCache': 'Amazon ElastiCache',
+                'Redshift': 'Amazon Redshift',
+                'DocumentDB': 'Amazon DocumentDB',
+                'Neptune': 'Amazon Neptune'
+            },
+            'storage': {
+                'S3': 'Amazon S3',
+                'EBS': 'Amazon EBS',
+                'EFS': 'Amazon EFS',
+                'FSx': 'Amazon FSx',
+                'Data Lake': 'AWS Data Lake'
+            },
+            'networking': {
+                'VPC': 'Amazon VPC',
+                'CloudFront': 'Amazon CloudFront',
+                'Route 53': 'Amazon Route 53',
+                'API Gateway': 'Amazon API Gateway',
+                'Load Balancer': 'Application Load Balancer',
+                'ALB': 'Application Load Balancer',
+                'NLB': 'Network Load Balancer'
+            },
+            'security': {
+                'IAM': 'AWS IAM',
+                'KMS': 'AWS KMS',
+                'WAF': 'AWS WAF',
+                'GuardDuty': 'Amazon GuardDuty',
+                'Security Hub': 'AWS Security Hub',
+                'Certificate Manager': 'AWS Certificate Manager'
+            },
+            'monitoring': {
+                'CloudWatch': 'Amazon CloudWatch',
+                'CloudTrail': 'AWS CloudTrail',
+                'X-Ray': 'AWS X-Ray'
+            }
+        }
+        
+        # Process each category of user-selected services
+        for category, selected_services in user_services.items():
+            if selected_services and len(selected_services) > 0:
+                # Use the first selected service as primary
+                primary_service = selected_services[0]
+                
+                # Map to AWS service name if mapping exists
+                if category in service_mapping and primary_service in service_mapping[category]:
+                    services[category] = service_mapping[category][primary_service]
+                else:
+                    # Use the service name directly if no mapping found
+                    services[category] = primary_service
+        
+        # Ensure essential services are included if not specified - fall back to questionnaire preferences
+        if 'compute' not in services:
+            compute_pref = self._get_preference_value(questionnaire.compute_preference, "serverless")
+            if compute_pref == "serverless":
+                services["compute"] = "AWS Lambda"
+            elif compute_pref == "containers":
+                services["compute"] = "Amazon ECS/Fargate"
+            else:  # vms
+                services["compute"] = "Amazon EC2"
+        
+        if 'database' not in services:
+            database_type = self._get_preference_value(questionnaire.database_type, "nosql")
+            if database_type != "none":
+                if database_type == "sql":
+                    services["database"] = "Amazon RDS"
+                else:  # nosql
+                    services["database"] = "Amazon DynamoDB"
+        
+        if 'storage' not in services:
+            storage_needs = self._get_preference_value(questionnaire.storage_needs, "moderate")
+            if storage_needs == "minimal":
+                services["storage"] = "Amazon S3"
+            elif storage_needs == "moderate":
+                services["storage"] = "Amazon S3"
+            else:  # extensive
+                services["storage"] = "Amazon S3 + EFS"
+        
+        if 'monitoring' not in services:
+            services['monitoring'] = 'Amazon CloudWatch'
+            
+        # Add networking services based on traffic volume if not specified
+        traffic_volume = self._get_preference_value(questionnaire.traffic_volume, "medium")
+        geographical_reach = self._get_preference_value(questionnaire.geographical_reach, "single_region")
+        
+        if 'load_balancer' not in services and traffic_volume in ["medium", "high"]:
+            services["load_balancer"] = "Application Load Balancer"
+        
+        if 'cdn' not in services and geographical_reach in ["multi_region", "global"]:
+            services["cdn"] = "Amazon CloudFront"
+            
+        if 'dns' not in services and geographical_reach in ["multi_region", "global"]:
+            services["dns"] = "Amazon Route 53"
+        
+        return services
+    
+    def _get_preference_value(self, preference, default_value: str) -> str:
+        """Get preference value with fallback to default if None or missing"""
+        if preference is None:
+            return default_value
+        
+        if isinstance(preference, str):
+            return preference
+        else:
+            # Handle enum values
+            return preference.value if hasattr(preference, 'value') else default_value
+    
     def _generate_security_features(self, questionnaire: QuestionnaireRequest) -> List[str]:
         """Generate security features based on requirements"""
         security_features = [
@@ -143,10 +272,12 @@ class ArchitectureGenerator:
         
         # Handle compliance requirements
         compliance_reqs = []
-        for req in questionnaire.compliance_requirements:
-            req_value = req if isinstance(req, str) else req.value
-            if req_value != "none":
-                compliance_reqs.append(req_value)
+        if questionnaire.compliance_requirements:
+            for req in questionnaire.compliance_requirements:
+                req_value = req if isinstance(req, str) else req.value
+                if req_value != "none":
+                    compliance_reqs.append(req_value)
+        # If no compliance requirements or only "none" selected, compliance_reqs will be empty
         
         # Add compliance-specific security
         if "hipaa" in compliance_reqs:

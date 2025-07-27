@@ -207,7 +207,7 @@ Could you tell me:
             if total_savings > 0:
                 response += f"**Potential Monthly Savings: ${total_savings:.2f}**\n\n"
             
-            response += "### 🎯 Key Cost Optimization Opportunities:\n\n"
+            response += "### Key Cost Optimization Opportunities:\n\n"
             
             if cost_recommendations:
                 for i, rec in enumerate(cost_recommendations[:3], 1):
@@ -369,7 +369,7 @@ What specific performance challenges are you facing?"""
             response += f"Based on your requirements, here's how to integrate AI/ML:\n\n"
             response += self._generate_ai_ml_recommendations(use_case, services)
         else:
-            response += """### 🎯 Popular AI/ML Use Cases on AWS:
+            response += """### Popular AI/ML Use Cases on AWS:
 
 **1. Generative AI Applications**
 - **Amazon Bedrock**: Access foundation models (Claude, Titan, etc.)
@@ -657,7 +657,7 @@ What would you like to know about?"""
 4. Create insights dashboards""",
 
             "recommendation_engine": """
-**🎯 Recommendation Engine:**
+**Recommendation Engine:**
 - **Amazon Personalize**: Managed recommendation service
 - **SageMaker**: Build custom recommendation models
 - **DynamoDB**: Store user interactions and preferences

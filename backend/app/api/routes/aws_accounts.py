@@ -104,6 +104,28 @@ async def delete_aws_account(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete AWS account: {str(e)}")
 
+@router.post("/validate-credentials")
+async def validate_new_aws_credentials(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    aws_session_token: str = None,
+    region: str = "us-west-2",
+    service: AWSAccountService = Depends(get_aws_account_service)
+):
+    """Validate new AWS credentials before account creation"""
+    try:
+        credentials = {
+            "aws_access_key_id": aws_access_key_id,
+            "aws_secret_access_key": aws_secret_access_key,
+            "aws_session_token": aws_session_token,
+            "region": region
+        }
+        
+        validation_result = service.validate_credentials(credentials)
+        return validation_result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to validate AWS credentials: {str(e)}")
+
 @router.post("/{account_id}/validate")
 async def validate_aws_account(
     account_id: str,

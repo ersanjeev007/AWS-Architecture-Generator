@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import { extractApiErrorMessage } from '../utils/errorUtils';
 
 class InfrastructureImportService {
   /**
@@ -10,7 +11,7 @@ class InfrastructureImportService {
       return response.data;
     } catch (error) {
       console.error('Error scanning AWS account:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to scan AWS account');
+      throw new Error(extractApiErrorMessage(error, 'Failed to scan AWS account'));
     }
   }
 
@@ -23,7 +24,7 @@ class InfrastructureImportService {
       return response.data;
     } catch (error) {
       console.error('Error importing infrastructure:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to import infrastructure');
+      throw new Error(extractApiErrorMessage(error, 'Failed to import infrastructure'));
     }
   }
 
@@ -36,7 +37,7 @@ class InfrastructureImportService {
       return response.data;
     } catch (error) {
       console.error('Error generating Terraform:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to generate Terraform configuration');
+      throw new Error(extractApiErrorMessage(error, 'Failed to generate Terraform configuration'));
     }
   }
 
@@ -49,7 +50,7 @@ class InfrastructureImportService {
       return response.data;
     } catch (error) {
       console.error('Error generating CloudFormation:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to generate CloudFormation template');
+      throw new Error(extractApiErrorMessage(error, 'Failed to generate CloudFormation template'));
     }
   }
 
@@ -62,7 +63,7 @@ class InfrastructureImportService {
       return response.data;
     } catch (error) {
       console.error('Error analyzing security:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to analyze infrastructure security');
+      throw new Error(extractApiErrorMessage(error, 'Failed to analyze infrastructure security'));
     }
   }
 
@@ -75,7 +76,7 @@ class InfrastructureImportService {
       return response.data;
     } catch (error) {
       console.error('Error generating diagram:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to generate architecture diagram');
+      throw new Error(extractApiErrorMessage(error, 'Failed to generate architecture diagram'));
     }
   }
 

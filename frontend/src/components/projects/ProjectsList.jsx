@@ -20,6 +20,7 @@ import {
 import { Link } from 'react-router-dom';
 import { FaEdit, FaTrash, FaEye, FaPlus } from 'react-icons/fa';
 import { projectService } from '../../services/projectService';
+import { extractErrorMessage } from '../../utils/errorUtils';
 
 const ProjectsList = () => {
   const [projects, setProjects] = useState([]);
@@ -37,7 +38,7 @@ const ProjectsList = () => {
       const projectList = await projectService.listProjects();
       setProjects(projectList);
     } catch (err) {
-      setError(err.message);
+      setError(extractErrorMessage(err, 'Failed to load projects'));
     } finally {
       setLoading(false);
     }

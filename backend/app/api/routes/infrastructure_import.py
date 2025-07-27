@@ -6,6 +6,7 @@ import logging
 from app.database import get_db
 from app.api.routes.auth import get_current_user
 from app.services.infrastructure_import_service import InfrastructureImportService
+from app.services.aws_account_service import AWSAccountService
 from app.schemas.auth import UserResponse
 from pydantic import BaseModel, Field
 
@@ -25,7 +26,7 @@ class ImportProjectRequest(BaseModel):
     """Request to create project from imported infrastructure"""
     project_name: str = Field(..., description="Name for the new project")
     template_type: str = Field("terraform", pattern="^(terraform|cloudformation)$", description="Template type to generate")
-    aws_credentials: AWSCredentials
+    aws_account_id: str = Field(..., description="ID of the AWS account to import from")
     infrastructure_data: Optional[Dict[str, Any]] = Field(None, description="Pre-scanned infrastructure data")
 
 class ScanResponse(BaseModel):
@@ -44,9 +45,10 @@ class ImportResponse(BaseModel):
     diagram_data: Dict[str, Any]
     security_analysis: Dict[str, Any]
 
-@router.post("/scan-aws-account", response_model=ScanResponse)
+@router.post("/scan-aws-account/{aws_account_id}", response_model=ScanResponse)
 async def scan_aws_account(
-    credentials: AWSCredentials,
+    aws_account_id: str,
+    db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user)
 ):
     """
@@ -54,18 +56,24 @@ async def scan_aws_account(
     """
     try:
         import_service = InfrastructureImportService()
+        aws_service = AWSAccountService()
         
-        # Convert credentials to dict
+        # Get credentials for the AWS account
+        credentials = aws_service.get_credentials(db, aws_account_id)
+        if not credentials:
+            raise HTTPException(status_code=404, detail="AWS account not found or inactive")
+        
+        # Convert credentials to expected format
         creds_dict = {
-            "access_key_id": credentials.access_key_id,
-            "secret_access_key": credentials.secret_access_key,
-            "session_token": credentials.session_token,
-            "account_id": credentials.account_id,
-            "region": credentials.region
+            "access_key_id": credentials["aws_access_key_id"],
+            "secret_access_key": credentials["aws_secret_access_key"],
+            "session_token": credentials.get("aws_session_token"),
+            "account_id": aws_account_id,
+            "region": credentials["region_name"]
         }
         
         # Scan the AWS account
-        infrastructure = await import_service.scan_aws_account(creds_dict, credentials.region)
+        infrastructure = await import_service.scan_aws_account(creds_dict, credentials["region_name"])
         
         # Create scan summary
         services = infrastructure.get("services", {})
@@ -109,16 +117,21 @@ async def import_infrastructure(
         if request.infrastructure_data:
             infrastructure = request.infrastructure_data
         else:
-            # Scan the AWS account
+            # Get credentials for the AWS account
+            credentials = aws_service.get_credentials(db, request.aws_account_id)
+            if not credentials:
+                raise HTTPException(status_code=404, detail="AWS account not found or inactive")
+            
+            # Convert credentials to expected format
             creds_dict = {
-                "access_key_id": request.aws_credentials.access_key_id,
-                "secret_access_key": request.aws_credentials.secret_access_key,
-                "session_token": request.aws_credentials.session_token,
-                "account_id": request.aws_credentials.account_id,
-                "region": request.aws_credentials.region
+                "access_key_id": credentials["aws_access_key_id"],
+                "secret_access_key": credentials["aws_secret_access_key"],
+                "session_token": credentials.get("aws_session_token"),
+                "account_id": request.aws_account_id,
+                "region": credentials["region_name"]
             }
             
-            infrastructure = await import_service.scan_aws_account(creds_dict, request.aws_credentials.region)
+            infrastructure = await import_service.scan_aws_account(creds_dict, credentials["region_name"])
         
         # Create project from imported infrastructure
         project_id = await import_service.create_imported_project(
